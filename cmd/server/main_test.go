@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/wxbackup/wxbackup/internal/adapter/devicesession"
 	"github.com/wxbackup/wxbackup/internal/app/backup"
+	"github.com/wxbackup/wxbackup/internal/app/restore"
 	"github.com/wxbackup/wxbackup/internal/config"
 	"github.com/wxbackup/wxbackup/internal/domain"
 	"github.com/wxbackup/wxbackup/internal/store/sqlite"
@@ -202,10 +202,16 @@ func testMuxDist(t *testing.T, version, dist string) http.Handler {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	svc, err := backup.New(backup.Options{Store: store, DataDir: t.TempDir()})
+	data := t.TempDir()
+	svc, err := backup.New(backup.Options{Store: store, DataDir: data})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = svc.Close() })
-	return newMuxWithDist(version, store, svc, dist)
+	restoreSvc, err := restore.New(restore.Options{Store: store, DataDir: data})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restoreSvc.Close() })
+	return newMuxWithDist(version, store, svc, restoreSvc, dist)
 }

@@ -364,8 +364,71 @@ func TestResolver(t *testing.T) {
 	if !ok || sc.Dir != dir {
 		t.Fatalf("%T %+v", sess, sess)
 	}
-	if _, err := sess.StartRestore(context.Background(), domain.RestoreRequest{}); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("restore: %v", err)
+	if _, err := sess.StartRestore(context.Background(), domain.RestoreRequest{}); err == nil {
+		t.Fatal("empty sidecar package must fail restore")
+	}
+}
+
+func TestSidecarStartRestoreReadsPackage(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	now := time.Date(2024, 9, 3, 0, 0, 0, 0, time.UTC)
+	if err := backupfmt.Write(dir, backupfmt.Snapshot{
+		AccountID: "a1",
+		WxID:      "wxid_fixture",
+		Conversations: []domain.Conversation{
+			{AccountID: "a1", TalkerID: "wxid_friend", Kind: domain.ConversationFriend, LastMsgTime: now, MsgCount: 1},
+			{AccountID: "a1", TalkerID: "wxid_room", Kind: domain.ConversationGroup, LastMsgTime: now, MsgCount: 1},
+		},
+		Messages: []domain.Message{
+			{AccountID: "a1", TalkerID: "wxid_friend", MsgID: "m1", MsgSeq: 1, MsgType: 1, CreateTime: now, Text: "hi"},
+			{AccountID: "a1", TalkerID: "wxid_room", MsgID: "r1", MsgSeq: 1, MsgType: 1, CreateTime: now, Text: "room"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sess := NewSidecar(dir)
+	stream, err := sess.StartRestore(context.Background(), domain.RestoreRequest{
+		AccountID: "a1",
+		Selector:  domain.RestoreSelector{Kind: domain.RestoreSessionIDs, SessionIDs: []string{"wxid_friend"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last int
+	for ev := range stream.Progress() {
+		last = ev.SessionsDone
+	}
+	if err := stream.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if last != 1 {
+		t.Fatalf("sessions_done %d", last)
+	}
+}
+
+func TestFakeSessionStartRestore(t *testing.T) {
+	t.Parallel()
+	fake := &FakeSession{RestoreTalkers: []string{"wxid_a", "wxid_b"}}
+	stream, err := fake.StartRestore(context.Background(), domain.RestoreRequest{
+		Selector: domain.RestoreSelector{Kind: domain.RestoreAll},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last int
+	for ev := range stream.Progress() {
+		last = ev.SessionsDone
+	}
+	if err := stream.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if last != 2 {
+		t.Fatalf("sessions_done %d", last)
+	}
+	req := fake.LastRestoreRequest()
+	if req.Selector.Kind != domain.RestoreAll {
+		t.Fatalf("%+v", req)
 	}
 }
 

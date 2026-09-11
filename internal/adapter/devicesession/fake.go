@@ -47,7 +47,12 @@ type FakeSession struct {
 	mu          sync.Mutex
 	holdOnce    sync.Once
 	LastRequest domain.BackupRequest
+	LastRestore domain.RestoreRequest
 	Emitted     []string
+	// OutDir, if set, is the official Backup.db destination used by restore jobs.
+	OutDir string
+	// RestoreTalkers is the session list StartRestore reports. Empty uses the request selector.
+	RestoreTalkers []string
 }
 
 func (f *FakeSession) LoginQR(context.Context) (domain.LoginSession, error) {
@@ -126,8 +131,68 @@ func (f *FakeSession) StartBackup(ctx context.Context, req domain.BackupRequest)
 	return st, nil
 }
 
-func (f *FakeSession) StartRestore(context.Context, domain.RestoreRequest) (domain.RestoreStream, error) {
-	return nil, ErrUnsupported
+func (f *FakeSession) StartRestore(ctx context.Context, req domain.RestoreRequest) (domain.RestoreStream, error) {
+	if f.StartErr != nil {
+		return nil, f.StartErr
+	}
+	f.mu.Lock()
+	f.LastRestore = req
+	talkers := append([]string(nil), f.RestoreTalkers...)
+	f.mu.Unlock()
+	talkers = filterRestoreTalkers(talkers, req)
+	ctx, cancel := context.WithCancel(ctx)
+	st := &fakeRestoreStream{
+		progress: make(chan domain.RestoreProgress, 8),
+		stop:     cancel,
+		done:     make(chan struct{}),
+	}
+	go func() {
+		defer close(st.done)
+		defer close(st.progress)
+		defer cancel()
+		for i := range talkers {
+			if f.FailAfter > 0 && i >= f.FailAfter {
+				st.setErr(f.WaitErr)
+				if st.err == nil {
+					st.setErr(errFakeFail)
+				}
+				return
+			}
+			select {
+			case <-ctx.Done():
+				st.setErr(domain.ErrBackupCancelled)
+				return
+			case st.progress <- domain.RestoreProgress{
+				SessionsDone: i + 1,
+				Status:       domain.JobTransfer,
+			}:
+			}
+		}
+		if f.Hold != nil {
+			if f.Holding != nil {
+				f.holdOnce.Do(func() { close(f.Holding) })
+			}
+			select {
+			case <-ctx.Done():
+				st.setErr(domain.ErrBackupCancelled)
+				return
+			case <-f.Hold.Done():
+			}
+		}
+		if f.WaitErr != nil && f.FailAfter == 0 {
+			st.setErr(f.WaitErr)
+		}
+	}()
+	return st, nil
+}
+
+func (f *FakeSession) RestoreDir() string {
+	if f == nil {
+		return ""
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.OutDir
 }
 
 func (f *FakeSession) RefreshContacts(context.Context) error { return nil }
@@ -139,6 +204,12 @@ func (f *FakeSession) LastBackupRequest() domain.BackupRequest {
 	return f.LastRequest
 }
 
+func (f *FakeSession) LastRestoreRequest() domain.RestoreRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.LastRestore
+}
+
 func (f *FakeSession) EmittedTalkers() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -148,6 +219,7 @@ func (f *FakeSession) EmittedTalkers() []string {
 var (
 	_ domain.DeviceSession = (*FakeSession)(nil)
 	_ ChunkSource          = (*fakeStream)(nil)
+	_ domain.RestoreStream = (*fakeRestoreStream)(nil)
 )
 
 type fakeStream struct {
@@ -181,6 +253,66 @@ func (s *fakeStream) setErr(err error) {
 	if s.err == nil {
 		s.err = err
 	}
+}
+
+type fakeRestoreStream struct {
+	progress chan domain.RestoreProgress
+	stop     context.CancelFunc
+	done     chan struct{}
+
+	mu  sync.Mutex
+	err error
+}
+
+func (s *fakeRestoreStream) Progress() <-chan domain.RestoreProgress { return s.progress }
+
+func (s *fakeRestoreStream) Wait() error {
+	<-s.done
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err
+}
+
+func (s *fakeRestoreStream) Cancel(context.Context) error {
+	s.stop()
+	return domain.ErrBackupCancelled
+}
+
+func (s *fakeRestoreStream) setErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err == nil {
+		s.err = err
+	}
+}
+
+func filterRestoreTalkers(talkers []string, req domain.RestoreRequest) []string {
+	if req.Selector.Kind != domain.RestoreSessionIDs {
+		return talkers
+	}
+	want := make(map[string]struct{}, len(req.Selector.SessionIDs))
+	for _, id := range req.Selector.SessionIDs {
+		if id == "" {
+			continue
+		}
+		want[id] = struct{}{}
+	}
+	if len(talkers) == 0 {
+		out := make([]string, 0, len(req.Selector.SessionIDs))
+		for _, id := range req.Selector.SessionIDs {
+			if id != "" {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	out := make([]string, 0, len(talkers))
+	for _, id := range talkers {
+		if _, ok := want[id]; ok {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 var errFakeFail = domain.ErrPhoneNotForeground

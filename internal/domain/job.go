@@ -79,9 +79,10 @@ type RestoreSelector struct {
 }
 
 type RestoreJob struct {
-	ID        string          `json:"id"`
-	AccountID string          `json:"account_id"`
-	Selector  RestoreSelector `json:"selector"`
-	Status    JobStatus       `json:"status"`
-	Error     string          `json:"error,omitempty"`
+	ID           string          `json:"id"`
+	AccountID    string          `json:"account_id"`
+	Selector     RestoreSelector `json:"selector"`
+	Status       JobStatus       `json:"status"`
+	SessionsDone int             `json:"sessions_done"`
+	Error        string          `json:"error,omitempty"`
 }

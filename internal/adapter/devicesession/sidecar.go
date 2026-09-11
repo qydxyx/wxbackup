@@ -84,8 +84,36 @@ func (s *Sidecar) StartBackup(ctx context.Context, req domain.BackupRequest) (do
 	return fake.StartBackup(ctx, req)
 }
 
-func (s *Sidecar) StartRestore(context.Context, domain.RestoreRequest) (domain.RestoreStream, error) {
-	return nil, ErrUnsupported
+func (s *Sidecar) RestoreDir() string {
+	if s == nil {
+		return ""
+	}
+	return s.Dir
+}
+
+func (s *Sidecar) StartRestore(ctx context.Context, req domain.RestoreRequest) (domain.RestoreStream, error) {
+	if s == nil || strings.TrimSpace(s.Dir) == "" {
+		return nil, fmt.Errorf("devicesession: sidecar directory is required")
+	}
+	snap, err := backupfmt.Read(s.Dir)
+	if err != nil {
+		return nil, err
+	}
+	talkers := make([]string, 0, len(snap.Conversations))
+	seen := map[string]struct{}{}
+	for _, c := range snap.Conversations {
+		if c.TalkerID == "" {
+			continue
+		}
+		if _, ok := seen[c.TalkerID]; ok {
+			continue
+		}
+		seen[c.TalkerID] = struct{}{}
+		talkers = append(talkers, c.TalkerID)
+	}
+	sort.Strings(talkers)
+	fake := &FakeSession{RestoreTalkers: talkers}
+	return fake.StartRestore(ctx, req)
 }
 
 func (s *Sidecar) RefreshContacts(context.Context) error { return nil }

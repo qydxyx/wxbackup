@@ -12,6 +12,7 @@ import (
 
 	"github.com/wxbackup/wxbackup/internal/adapter/devicesession"
 	"github.com/wxbackup/wxbackup/internal/app/backup"
+	"github.com/wxbackup/wxbackup/internal/app/restore"
 	"github.com/wxbackup/wxbackup/internal/config"
 	httpapi "github.com/wxbackup/wxbackup/internal/http"
 	"github.com/wxbackup/wxbackup/internal/store/sqlite"
@@ -37,33 +38,46 @@ func run() error {
 		return err
 	}
 	defer store.Close()
+	sessions := devicesession.Resolver(cfg.SidecarDir)
 	svc, err := backup.New(backup.Options{
 		Store:    store,
 		DataDir:  cfg.DataDir,
-		Sessions: devicesession.Resolver(cfg.SidecarDir),
+		Sessions: sessions,
 	})
 	if err != nil {
 		return err
 	}
 	defer svc.Close()
+	restoreSvc, err := restore.New(restore.Options{
+		Store:    store,
+		DataDir:  cfg.DataDir,
+		Sessions: sessions,
+	})
+	if err != nil {
+		return err
+	}
+	defer restoreSvc.Close()
 	log.Printf("wxbackup %s listening on %s (data=%s)", Version, cfg.Addr(), cfg.DataDir)
-	return http.ListenAndServe(cfg.Addr(), newMux(Version, store, svc))
+	return http.ListenAndServe(cfg.Addr(), newMux(Version, store, svc, restoreSvc))
 }
 
-func newMux(version string, store *sqlite.Store, svc *backup.Service) http.Handler {
+func newMux(version string, store *sqlite.Store, svc *backup.Service, restoreSvc *restore.Service) http.Handler {
 	dist := lookupWebDist()
 	if dist != "" {
 		log.Printf("serving web UI from %s", dist)
 	}
-	return newMuxWithDist(version, store, svc, dist)
+	return newMuxWithDist(version, store, svc, restoreSvc, dist)
 }
 
-func newMuxWithDist(version string, store *sqlite.Store, svc *backup.Service, dist string) http.Handler {
+func newMuxWithDist(version string, store *sqlite.Store, svc *backup.Service, restoreSvc *restore.Service, dist string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler(version))
 	httpapi.New(store).Register(mux)
 	if svc != nil {
 		svc.Register(mux)
+	}
+	if restoreSvc != nil {
+		restoreSvc.Register(mux)
 	}
 	if dist != "" {
 		mux.Handle("/", spaHandler(dist))

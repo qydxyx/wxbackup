@@ -30,6 +30,18 @@ var metaMigrations = []migration{
 		)`,
 		`CREATE INDEX backup_jobs_account ON backup_jobs (account_id)`,
 	},
+	{
+		`CREATE TABLE restore_jobs (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL,
+			selector_kind TEXT NOT NULL,
+			session_ids TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL,
+			sessions_done INTEGER NOT NULL DEFAULT 0,
+			error TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX restore_jobs_account ON restore_jobs (account_id)`,
+	},
 }
 
 var accountMigrations = []migration{

@@ -374,6 +374,27 @@ func TestMediaCursorJob(t *testing.T) {
 		t.Fatalf("%+v %v", jobs, err)
 	}
 
+	rj := domain.RestoreJob{
+		ID: "r1", AccountID: "a1",
+		Selector:     domain.RestoreSelector{Kind: domain.RestoreSessionIDs, SessionIDs: []string{"wxid_friend"}},
+		Status:       domain.JobOrganize,
+		SessionsDone: 1,
+	}
+	if err := s.PutRestoreJob(ctx, rj); err != nil {
+		t.Fatal(err)
+	}
+	rj.Status = domain.JobDone
+	if err := s.PutRestoreJob(ctx, rj); err != nil {
+		t.Fatal(err)
+	}
+	gotRestore, err := s.GetRestoreJob(ctx, "r1")
+	if err != nil || gotRestore.Status != domain.JobDone || gotRestore.Selector.Kind != domain.RestoreSessionIDs {
+		t.Fatalf("%+v %v", gotRestore, err)
+	}
+	if len(gotRestore.Selector.SessionIDs) != 1 || gotRestore.Selector.SessionIDs[0] != "wxid_friend" {
+		t.Fatalf("session_ids %+v", gotRestore.Selector.SessionIDs)
+	}
+
 	acct, err := s.OpenAccount(ctx, "wxid_fixture")
 	if err != nil {
 		t.Fatal(err)
