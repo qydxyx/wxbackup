@@ -12,6 +12,8 @@ tmp/
 *.test
 coverage.out
 web/dist/
+web/dist-port/
+web/dist-cgi/
 data/
 *.db
 *.db-wal

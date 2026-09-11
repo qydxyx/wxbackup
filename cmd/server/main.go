@@ -35,17 +35,16 @@ func run() error {
 		return err
 	}
 	defer store.Close()
-	dist := lookupWebDist()
-	if dist != "" {
-		log.Printf("wxbackup %s listening on %s (data=%s web=%s)", Version, cfg.Addr(), cfg.DataDir, dist)
-	} else {
-		log.Printf("wxbackup %s listening on %s (data=%s web=off)", Version, cfg.Addr(), cfg.DataDir)
-	}
-	return http.ListenAndServe(cfg.Addr(), newMuxWithDist(Version, store, dist))
+	log.Printf("wxbackup %s listening on %s (data=%s)", Version, cfg.Addr(), cfg.DataDir)
+	return http.ListenAndServe(cfg.Addr(), newMux(Version, store))
 }
 
 func newMux(version string, store *sqlite.Store) http.Handler {
-	return newMuxWithDist(version, store, lookupWebDist())
+	dist := lookupWebDist()
+	if dist != "" {
+		log.Printf("serving web UI from %s", dist)
+	}
+	return newMuxWithDist(version, store, dist)
 }
 
 func newMuxWithDist(version string, store *sqlite.Store, dist string) http.Handler {
@@ -63,12 +62,18 @@ func lookupWebDist() string {
 		if hasWebIndex(v) {
 			return v
 		}
+		// env override is exclusive; do not silently fall back
+		log.Printf("WXBACKUP_WEB=%s has no index.html; web=off", v)
 		return ""
 	}
-	cands := []string{"web/dist"}
+	cands := []string{"web/dist", "web/dist-port"}
 	if exe, err := os.Executable(); err == nil {
 		dir := filepath.Dir(exe)
-		cands = append(cands, filepath.Join(dir, "web", "dist"), filepath.Join(dir, "dist"))
+		cands = append(cands,
+			filepath.Join(dir, "web", "dist"),
+			filepath.Join(dir, "web", "dist-port"),
+			filepath.Join(dir, "dist"),
+		)
 	}
 	for _, d := range cands {
 		if hasWebIndex(d) {
@@ -96,7 +101,8 @@ func spaHandler(dist string) http.Handler {
 			return
 		}
 		p := path.Clean(r.URL.Path)
-		if p != "/" && path.Ext(p) != "" {
+		// talker ids can contain '.' so an extension check 404s history URLs
+		if isHashedAsset(p) {
 			f, err := root.Open(p)
 			if err != nil {
 				http.NotFound(w, r)
@@ -113,6 +119,11 @@ func spaHandler(dist string) http.Handler {
 		}
 		http.ServeFile(w, r, index)
 	})
+}
+
+func isHashedAsset(p string) bool {
+	p = path.Clean("/" + strings.TrimPrefix(p, "/"))
+	return p == "/assets" || strings.HasPrefix(p, "/assets/") || strings.Contains(p, "/assets/")
 }
 
 func healthHandler(version string) http.HandlerFunc {

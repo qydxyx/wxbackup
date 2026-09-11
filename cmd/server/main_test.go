@@ -105,6 +105,12 @@ func TestSPAServesIndexAndAssets(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/chat/a1/wxid.friend", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "spa") {
+		t.Fatalf("dotted talker %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/app.js", nil))
 	if rec.Code != http.StatusOK || rec.Body.String() != "console.log(1)" {
 		t.Fatalf("asset %d %s", rec.Code, rec.Body.String())

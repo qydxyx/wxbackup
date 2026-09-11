@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build --base / --outDir dist",
-    "build:port": "vite build --base / --outDir dist/port",
-    "build:cgi": "vite build --base /cgi/ThirdParty/WxBackup/index.cgi/ --outDir dist/cgi",
+    "build:port": "vite build --base / --outDir dist-port",
+    "build:cgi": "vite build --base /cgi/ThirdParty/WxBackup/index.cgi/ --outDir dist-cgi",
+    "build:all": "npm run build && npm run build:port && npm run build:cgi",
     "preview": "vite preview",
     "test": "vitest run"
   },

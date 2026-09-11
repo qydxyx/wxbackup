@@ -1,5 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { apiURL } from '../api'
 import { useAccountsStore } from './accounts'
 import { messagePreview } from '../messages'
 import { applyTheme, isCgiBase, showH5FirstLoginBanner } from '../theme'
@@ -28,7 +29,7 @@ describe('accounts store', () => {
     )
     const store = useAccountsStore()
     await store.fetchAccounts()
-    expect(fetch).toHaveBeenCalledWith('/v1/accounts')
+    expect(fetch).toHaveBeenCalledWith(apiURL('/v1/accounts'))
     expect(store.accounts).toHaveLength(1)
     expect(store.accounts[0].id).toBe('a1')
     expect(store.hasLoggedIn).toBe(true)
@@ -61,6 +62,22 @@ describe('messagePreview', () => {
     expect(messagePreview({ msg_type: 10000, text: 'synthetic system notice' })).toBe(
       'synthetic system notice',
     )
+  })
+})
+
+describe('apiURL', () => {
+  it('keeps origin-root paths when base is /', () => {
+    expect(apiURL('/v1/accounts', '/')).toBe('/v1/accounts')
+    expect(apiURL('/v1/accounts')).toBe('/v1/accounts')
+  })
+
+  it('prefixes cgi BASE_URL so iframe traffic hits index.cgi', () => {
+    expect(apiURL('/v1/accounts', '/cgi/ThirdParty/WxBackup/index.cgi/')).toBe(
+      '/cgi/ThirdParty/WxBackup/index.cgi/v1/accounts',
+    )
+    expect(
+      apiURL('/v1/conversations/wxid.friend/messages', '/cgi/ThirdParty/WxBackup/index.cgi/'),
+    ).toBe('/cgi/ThirdParty/WxBackup/index.cgi/v1/conversations/wxid.friend/messages')
   })
 })
 
