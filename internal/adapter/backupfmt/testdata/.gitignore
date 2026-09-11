@@ -1,0 +1,3 @@
+# Fixtures are generated in tests; do not commit Backup.db or BAK shards.
+*
+!.gitignore
