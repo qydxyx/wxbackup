@@ -95,6 +95,24 @@ func TestSearchTypeAndDateFilters(t *testing.T) {
 	}
 }
 
+func TestSearchLiteralPhraseNotOperators(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := seededConn(t)
+	if err := Rebuild(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{`hello" OR "later`, `later OR hello`, `hello*`} {
+		got, err := Search(ctx, db, Query{Q: q})
+		if err != nil {
+			t.Fatalf("q %q: %v", q, err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("q %q widened to %v", q, msgIDs(got))
+		}
+	}
+}
+
 func TestSearchEmptyQuery(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -99,7 +99,8 @@ func Search(ctx context.Context, db *sql.DB, q Query) ([]domain.Message, error) 
 	if db == nil {
 		return nil, fmt.Errorf("fts: db is required")
 	}
-	if strings.TrimSpace(q.Q) == "" {
+	needle := strings.TrimSpace(q.Q)
+	if needle == "" {
 		return []domain.Message{}, nil
 	}
 	if err := Ensure(ctx, db); err != nil {
@@ -129,6 +130,10 @@ func Search(ctx context.Context, db *sql.DB, q Query) ([]domain.Message, error) 
 	if q.To != nil && !q.To.IsZero() {
 		toMS = q.To.UnixMilli()
 	}
+	match := quotePhrase(needle)
+	if match == "" {
+		return []domain.Message{}, nil
+	}
 	sqlStr := `
 		SELECT m.talker_id, m.msg_id, m.account_id, m.msg_seq, m.msg_type, m.is_send, m.create_time, m.text, m.xml, m.extra
 		FROM messages_fts
@@ -136,7 +141,7 @@ func Search(ctx context.Context, db *sql.DB, q Query) ([]domain.Message, error) 
 		WHERE messages_fts MATCH ?
 		  AND m.create_time >= ?
 		  AND m.create_time <= ?`
-	args := []any{quotePhrase(q.Q), fromMS, toMS}
+	args := []any{match, fromMS, toMS}
 	if q.MsgType != nil {
 		sqlStr += ` AND m.msg_type = ?`
 		args = append(args, *q.MsgType)
@@ -156,6 +161,11 @@ func Search(ctx context.Context, db *sql.DB, q Query) ([]domain.Message, error) 
 		m, err := scanMessage(rows)
 		if err != nil {
 			return nil, err
+		}
+		// MATCH is a candidate generator; keep literal phrase hits only so a
+		// neutralized * cannot still surface prefix-expanded tokens.
+		if !containsFold(m.Text, needle) {
+			continue
 		}
 		out = append(out, m)
 	}
@@ -182,11 +192,21 @@ func needsRebuild(ctx context.Context, db *sql.DB) (bool, error) {
 }
 
 // quotePhrase treats the user string as a literal phrase so MATCH is not a
-// query-language injection surface (AND/OR/NEAR/" ).
+// query-language injection surface (AND/OR/NEAR/"/*).
 func quotePhrase(q string) string {
 	q = strings.TrimSpace(q)
+	// FTS5 still treats a trailing * inside quotes as a prefix token.
+	q = strings.ReplaceAll(q, "*", " ")
 	q = strings.ReplaceAll(q, `"`, `""`)
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return ""
+	}
 	return `"` + q + `"`
+}
+
+func containsFold(text, sub string) bool {
+	return strings.Contains(strings.ToLower(text), strings.ToLower(sub))
 }
 
 type rowScanner interface {

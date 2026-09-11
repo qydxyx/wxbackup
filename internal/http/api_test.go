@@ -459,6 +459,21 @@ func TestSearchAccountIsolation(t *testing.T) {
 			t.Fatalf("leaked %+v", m)
 		}
 	}
+
+	rec = do(t, h, http.MethodGet, "/v1/search?account_id="+fixtures.OtherAccountID+"&q="+url.QueryEscape("hello fixture"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.Bytes())
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"messages":[]}` {
+		t.Fatalf("a2 hello fixture %s", rec.Body.String())
+	}
+	rec = do(t, h, http.MethodGet, "/v1/search?account_id="+fixtures.AccountID+"&q=other")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.Bytes())
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"messages":[]}` {
+		t.Fatalf("a1 other %s", rec.Body.String())
+	}
 }
 
 func TestEmptyStoreAccounts(t *testing.T) {
