@@ -23,12 +23,7 @@ onMounted(() => {
 
 watch(
   () => [props.accountId, props.talkerId],
-  async ([accountId, talkerId]) => {
-    if (accountId !== store.accountId) {
-      await store.loadConversations(accountId)
-    }
-    await store.loadMessages(talkerId)
-  },
+  ([accountId, talkerId]) => store.syncRoute(accountId, talkerId || ''),
   { immediate: true },
 )
 

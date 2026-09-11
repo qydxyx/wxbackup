@@ -17,6 +17,14 @@ export const useChatStore = defineStore('chat', {
     current: (s) => s.conversations.find((c) => c.talker_id === s.talkerId) || null,
   },
   actions: {
+    // ChatView's async watch is not cancelled; bail if this pair is no longer current.
+    async syncRoute(accountId, talkerId) {
+      if (accountId !== this.accountId) {
+        await this.loadConversations(accountId)
+      }
+      if (this.accountId !== accountId) return
+      await this.loadMessages(accountId, talkerId)
+    },
     async loadConversations(accountId) {
       const gen = ++this.convGen
       this.accountId = accountId
@@ -34,12 +42,13 @@ export const useChatStore = defineStore('chat', {
         if (gen === this.convGen) this.loadingConv = false
       }
     },
-    async loadMessages(talkerId) {
-      const gen = ++this.msgGen
+    async loadMessages(accountId, talkerId) {
       const talker = talkerId || ''
+      const acct = accountId || ''
+      if (acct !== this.accountId) return
+      const gen = ++this.msgGen
       this.talkerId = talker
-      const accountId = this.accountId
-      if (!accountId || !talker) {
+      if (!acct || !talker) {
         if (gen === this.msgGen) {
           this.messages = []
           this.loadingMsg = false
@@ -49,12 +58,12 @@ export const useChatStore = defineStore('chat', {
       this.loadingMsg = true
       this.error = ''
       try {
-        const data = await getMessages(accountId, talker)
-        if (gen !== this.msgGen) return
+        const data = await getMessages(acct, talker)
+        if (gen !== this.msgGen || this.accountId !== acct) return
         const list = Array.isArray(data?.messages) ? data.messages : []
         this.messages = list.slice().reverse()
       } catch (e) {
-        if (gen !== this.msgGen) return
+        if (gen !== this.msgGen || this.accountId !== acct) return
         this.error = e.message || String(e)
         this.messages = []
       } finally {
