@@ -15,7 +15,6 @@ import (
 
 func TestHealth(t *testing.T) {
 	t.Parallel()
-<<<<<<< HEAD
 	srv := httptest.NewServer(testMux(t, "testdev"))
 	t.Cleanup(srv.Close)
 
@@ -46,7 +45,6 @@ func TestHealthMethodNotAllowed(t *testing.T) {
 	t.Parallel()
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	rec := httptest.NewRecorder()
-<<<<<<< HEAD
 	testMux(t, "testdev").ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status %d", rec.Code)
@@ -57,7 +55,6 @@ func TestViewerAccountsEmpty(t *testing.T) {
 	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/v1/accounts", nil)
 	rec := httptest.NewRecorder()
-<<<<<<< HEAD
 	testMux(t, "testdev").ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d", rec.Code)
