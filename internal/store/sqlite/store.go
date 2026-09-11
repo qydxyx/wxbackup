@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,18 +14,24 @@ import (
 	_ "modernc.org/sqlite" // pure Go; CI and NAS builds must not require CGO
 )
 
-var ErrNotFound = errors.New("sqlite: not found")
-
-const (
-	metaFile       = "meta.db"
-	accountsDir    = "accounts"
-	canonicalFile  = "canonical.db"
-	busyTimeoutMS  = 5000
-	defaultMsgPage = 50
-	maxMsgPage     = 1000
+var (
+	ErrNotFound        = errors.New("sqlite: not found")
+	ErrConstraint      = errors.New("sqlite: constraint")
+	ErrAccountMismatch = errors.New("sqlite: account id mismatch")
 )
 
-// Store is the process-wide handle for meta.db and per-account canonical.db files.
+const (
+	metaFile         = "meta.db"
+	accountsDir      = "accounts"
+	canonicalFile    = "canonical.db"
+	busyTimeoutMS    = 5000
+	defaultMsgPage   = 50
+	maxMsgPage       = 1000
+	sqliteConstraint = 19 // SQLITE_CONSTRAINT primary result code
+	dirPerm          = 0o700
+)
+
+// Jobs live in meta.db; messages never do.
 type Store struct {
 	dataDir string
 	meta    *sql.DB
@@ -44,7 +51,7 @@ func Open(dataDir string) (*Store, error) {
 	if strings.TrimSpace(dataDir) == "" {
 		return nil, fmt.Errorf("sqlite: data dir is required")
 	}
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	if err := os.MkdirAll(dataDir, dirPerm); err != nil {
 		return nil, err
 	}
 	meta, err := openDB(MetaPath(dataDir))
@@ -83,16 +90,24 @@ func (s *Store) Close() error {
 	return first
 }
 
-func (s *Store) OpenAccount(wxid string) (*AccountDB, error) {
+func (s *Store) OpenAccount(ctx context.Context, wxid string) (*AccountDB, error) {
 	if err := validWxID(wxid); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	acct, err := s.GetAccountByWxID(ctx, wxid)
+	if err != nil {
+		return nil, err
+	}
 	if a, ok := s.accts[wxid]; ok && a != nil && a.db != nil {
 		return a, nil
 	}
-	db, err := openDB(CanonicalPath(s.dataDir, wxid))
+	dir := filepath.Join(s.dataDir, accountsDir, wxid)
+	if err := os.MkdirAll(dir, dirPerm); err != nil {
+		return nil, err
+	}
+	db, err := openDB(filepath.Join(dir, canonicalFile))
 	if err != nil {
 		return nil, err
 	}
@@ -100,23 +115,28 @@ func (s *Store) OpenAccount(wxid string) (*AccountDB, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	a := &AccountDB{wxid: wxid, db: db}
+	a := &AccountDB{wxid: wxid, accountID: acct.ID, db: db}
 	s.accts[wxid] = a
 	return a, nil
 }
 
-// AccountDB is one account's canonical.db (conversations, messages, media, cursors).
 type AccountDB struct {
-	wxid string
-	db   *sql.DB
+	wxid      string
+	accountID string
+	db        *sql.DB
 }
 
-func (a *AccountDB) WxID() string { return a.wxid }
+func (a *AccountDB) WxID() string      { return a.wxid }
+func (a *AccountDB) AccountID() string { return a.accountID }
+
+func (a *AccountDB) bindAccountID(got string) (string, error) {
+	if got != "" && got != a.accountID {
+		return "", fmt.Errorf("%w: %q != %q", ErrAccountMismatch, got, a.accountID)
+	}
+	return a.accountID, nil
+}
 
 func openDB(path string) (*sql.DB, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
@@ -169,6 +189,17 @@ func validWxID(wxid string) error {
 func mapNotFound(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
+	}
+	return err
+}
+
+func mapSQLError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var se interface{ Code() int }
+	if errors.As(err, &se) && se.Code()&0xff == sqliteConstraint {
+		return fmt.Errorf("%w: %v", ErrConstraint, err)
 	}
 	return err
 }

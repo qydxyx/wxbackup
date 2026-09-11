@@ -25,10 +25,7 @@ func TestWALAndLayout(t *testing.T) {
 		t.Fatalf("meta journal_mode=%s", got)
 	}
 
-	acct, err := s.OpenAccount("wxid_fixture")
-	if err != nil {
-		t.Fatal(err)
-	}
+	acct := mustAccount(t, s, "a1", "wxid_fixture")
 	path := CanonicalPath(dir, "wxid_fixture")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
@@ -38,6 +35,14 @@ func TestWALAndLayout(t *testing.T) {
 	}
 	if !strings.HasSuffix(filepath.ToSlash(path), "accounts/wxid_fixture/canonical.db") {
 		t.Fatalf("path %s", path)
+	}
+	acctDir := filepath.Dir(path)
+	info, err := os.Stat(acctDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("account dir perm %o", perm)
 	}
 }
 
@@ -58,7 +63,7 @@ func TestMigrationIdempotent(t *testing.T) {
 	if err != nil || v1 != len(metaMigrations) {
 		t.Fatalf("version %d err=%v", v1, err)
 	}
-	acct, err := s.OpenAccount(want.WxID)
+	acct, err := s.OpenAccount(ctx, want.WxID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +87,7 @@ func TestMigrationIdempotent(t *testing.T) {
 	if got != want {
 		t.Fatalf("got %+v want %+v", got, want)
 	}
-	acct2, err := s2.OpenAccount(want.WxID)
+	acct2, err := s2.OpenAccount(ctx, want.WxID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,11 +125,20 @@ func TestAccountCRUD(t *testing.T) {
 	if err != nil || len(list) != 1 {
 		t.Fatalf("%+v %v", list, err)
 	}
+	if _, err := s.OpenAccount(ctx, "wxid_fixture"); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.DeleteAccount(ctx, "wxid_fixture"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.GetAccount(ctx, "a1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted: %v", err)
+	}
+	if _, err := os.Stat(CanonicalPath(dir, "wxid_fixture")); !os.IsNotExist(err) {
+		t.Fatalf("canonical dir still present: %v", err)
+	}
+	if _, err := s.OpenAccount(ctx, "wxid_fixture"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("open after delete: %v", err)
 	}
 }
 
@@ -133,10 +147,7 @@ func TestUniqueTalker(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 	s := mustOpen(t, dir)
-	acct, err := s.OpenAccount("wxid_fixture")
-	if err != nil {
-		t.Fatal(err)
-	}
+	acct := mustAccount(t, s, "a1", "wxid_fixture")
 	now := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 	c := domain.Conversation{
 		AccountID: "a1", TalkerID: "wxid_friend", Kind: domain.ConversationFriend,
@@ -174,10 +185,7 @@ func TestInsertListPageMessages(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 	s := mustOpen(t, dir)
-	acct, err := s.OpenAccount("wxid_fixture")
-	if err != nil {
-		t.Fatal(err)
-	}
+	acct := mustAccount(t, s, "a1", "wxid_fixture")
 	base := time.Date(2024, 1, 2, 3, 4, 0, 0, time.UTC)
 	for i := 1; i <= 5; i++ {
 		m := domain.Message{
@@ -189,21 +197,23 @@ func TestInsertListPageMessages(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	page1, err := acct.ListMessages(ctx, "wxid_friend", time.Time{}, 2)
+	page1, err := acct.ListMessages(ctx, "wxid_friend", nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(page1) != 2 || page1[0].MsgID != "m5" || page1[1].MsgID != "m4" {
 		t.Fatalf("page1 %+v", ids(page1))
 	}
-	page2, err := acct.ListMessages(ctx, "wxid_friend", page1[len(page1)-1].CreateTime, 2)
+	c1 := CursorFromMessage(page1[len(page1)-1])
+	page2, err := acct.ListMessages(ctx, "wxid_friend", &c1, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(page2) != 2 || page2[0].MsgID != "m3" || page2[1].MsgID != "m2" {
 		t.Fatalf("page2 %+v", ids(page2))
 	}
-	page3, err := acct.ListMessages(ctx, "wxid_friend", page2[len(page2)-1].CreateTime, 2)
+	c2 := CursorFromMessage(page2[len(page2)-1])
+	page3, err := acct.ListMessages(ctx, "wxid_friend", &c2, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +222,124 @@ func TestInsertListPageMessages(t *testing.T) {
 	}
 	got, err := acct.GetMessage(ctx, "wxid_friend", "m1")
 	if err != nil || got.Text != "hello-1" || got.IsSend {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestListMessagesSameCreateTime(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx := context.Background()
+	s := mustOpen(t, dir)
+	acct := mustAccount(t, s, "a1", "wxid_fixture")
+	same := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	for i := 1; i <= 5; i++ {
+		m := domain.Message{
+			AccountID: "a1", TalkerID: "wxid_room", MsgID: "m" + strconv.Itoa(i),
+			MsgSeq: int64(i), MsgType: 1, CreateTime: same, Text: strconv.Itoa(i),
+		}
+		if err := acct.PutMessage(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page1, err := acct.ListMessages(ctx, "wxid_room", nil, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(page1); len(got) != 2 || got[0] != "m5" || got[1] != "m4" {
+		t.Fatalf("page1 %v", got)
+	}
+	c := CursorFromMessage(page1[1])
+	page2, err := acct.ListMessages(ctx, "wxid_room", &c, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(page2); len(got) != 2 || got[0] != "m3" || got[1] != "m2" {
+		t.Fatalf("page2 %v", got)
+	}
+	c = CursorFromMessage(page2[1])
+	page3, err := acct.ListMessages(ctx, "wxid_room", &c, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(page3); len(got) != 1 || got[0] != "m1" {
+		t.Fatalf("page3 %v", got)
+	}
+}
+
+func TestMessageUpsertAndIsolation(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx := context.Background()
+	s := mustOpen(t, dir)
+	a := mustAccount(t, s, "id-a", "wxid_a")
+	b := mustAccount(t, s, "id-b", "wxid_b")
+	if CanonicalPath(dir, "wxid_a") == CanonicalPath(dir, "wxid_b") {
+		t.Fatal("accounts must not share a canonical path")
+	}
+	now := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	msg := domain.Message{
+		AccountID: "id-a", TalkerID: "wxid_friend", MsgID: "m1", MsgSeq: 1,
+		MsgType: 1, CreateTime: now, Text: "from-a",
+	}
+	if err := a.PutMessage(ctx, msg); err != nil {
+		t.Fatal(err)
+	}
+	msg.Text = "from-a-updated"
+	if err := a.PutMessage(ctx, msg); err != nil {
+		t.Fatal(err)
+	}
+	listA, err := a.ListMessages(ctx, "wxid_friend", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listA) != 1 || listA[0].Text != "from-a-updated" || listA[0].AccountID != "id-a" {
+		t.Fatalf("upsert %+v", listA)
+	}
+	if err := b.PutMessage(ctx, domain.Message{
+		AccountID: "id-b", TalkerID: "wxid_friend", MsgID: "m1", MsgSeq: 1,
+		MsgType: 1, CreateTime: now, Text: "from-b",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	listB, err := b.ListMessages(ctx, "wxid_friend", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listB) != 1 || listB[0].Text != "from-b" || listB[0].AccountID != "id-b" {
+		t.Fatalf("b %+v", listB)
+	}
+	if listA[0].Text == listB[0].Text {
+		t.Fatal("messages leaked across accounts")
+	}
+	if err := a.PutMessage(ctx, domain.Message{
+		AccountID: "id-b", TalkerID: "wxid_friend", MsgID: "m2", CreateTime: now, Text: "nope",
+	}); !errors.Is(err, ErrAccountMismatch) {
+		t.Fatalf("mismatch: %v", err)
+	}
+}
+
+func TestAccountWxIDImmutable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := mustOpen(t, t.TempDir())
+	if err := s.PutAccount(ctx, domain.Account{
+		ID: "a1", WxID: "wxid_a", LoginState: domain.LoginStateLoggedIn,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutAccount(ctx, domain.Account{
+		ID: "a1", WxID: "wxid_renamed", LoginState: domain.LoginStateLoggedIn,
+	}); !errors.Is(err, ErrConstraint) {
+		t.Fatalf("wxid change: %v", err)
+	}
+	if err := s.PutAccount(ctx, domain.Account{
+		ID: "a2", WxID: "wxid_a", LoginState: domain.LoginStateLoggedIn,
+	}); !errors.Is(err, ErrConstraint) {
+		t.Fatalf("duplicate wxid: %v", err)
+	}
+	got, err := s.GetAccount(ctx, "a1")
+	if err != nil || got.WxID != "wxid_a" {
 		t.Fatalf("%+v %v", got, err)
 	}
 }
@@ -246,7 +374,7 @@ func TestMediaCursorJob(t *testing.T) {
 		t.Fatalf("%+v %v", jobs, err)
 	}
 
-	acct, err := s.OpenAccount("wxid_fixture")
+	acct, err := s.OpenAccount(ctx, "wxid_fixture")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,11 +406,15 @@ func TestMediaCursorJob(t *testing.T) {
 func TestRejectBadWxID(t *testing.T) {
 	t.Parallel()
 	s := mustOpen(t, t.TempDir())
-	if _, err := s.OpenAccount("../escape"); err == nil {
+	ctx := context.Background()
+	if _, err := s.OpenAccount(ctx, "../escape"); err == nil {
 		t.Fatal("expected invalid wxid")
 	}
-	if _, err := s.OpenAccount(""); err == nil {
+	if _, err := s.OpenAccount(ctx, ""); err == nil {
 		t.Fatal("expected empty wxid")
+	}
+	if _, err := s.OpenAccount(ctx, "wxid_missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing account: %v", err)
 	}
 }
 
@@ -294,6 +426,21 @@ func mustOpen(t *testing.T, dir string) *Store {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s
+}
+
+func mustAccount(t *testing.T, s *Store, id, wxid string) *AccountDB {
+	t.Helper()
+	ctx := context.Background()
+	if err := s.PutAccount(ctx, domain.Account{
+		ID: id, WxID: wxid, LoginState: domain.LoginStateLoggedIn,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	acct, err := s.OpenAccount(ctx, wxid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return acct
 }
 
 func journalMode(t *testing.T, db *sql.DB) string {

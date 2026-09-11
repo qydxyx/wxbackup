@@ -56,7 +56,7 @@ var accountMigrations = []migration{
 			extra TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY (talker_id, msg_id)
 		)`,
-		`CREATE INDEX messages_talker_time ON messages (talker_id, create_time DESC, msg_seq DESC)`,
+		`CREATE INDEX messages_talker_time ON messages (talker_id, create_time DESC, msg_seq DESC, msg_id DESC)`,
 		`CREATE TABLE media (
 			media_id TEXT PRIMARY KEY,
 			account_id TEXT NOT NULL,
