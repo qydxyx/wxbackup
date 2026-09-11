@@ -98,6 +98,16 @@ func TestViewerSearchRequiresAccount(t *testing.T) {
 	}
 }
 
+func TestViewerStatsRequiresAccount(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	rec := httptest.NewRecorder()
+	testMux(t, "testdev").ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestMissingWebDistAPIOnly(t *testing.T) {
 	t.Parallel()
 	h := testMux(t, "testdev")

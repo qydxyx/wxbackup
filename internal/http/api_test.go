@@ -476,6 +476,112 @@ func TestSearchAccountIsolation(t *testing.T) {
 	}
 }
 
+func TestStatsFixture(t *testing.T) {
+	t.Parallel()
+	h := seededHandler(t)
+	rec := do(t, h, http.MethodGet, "/v1/stats?account_id="+fixtures.AccountID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.Bytes())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("content-type %q", ct)
+	}
+	var body statsBody
+	decode(t, rec, &body)
+	if body.AccountID != fixtures.AccountID || body.SessionCount != 2 || body.MessageCount != 8 {
+		t.Fatalf("%+v", body)
+	}
+	want := []struct {
+		MsgType int   `json:"msg_type"`
+		Count   int64 `json:"count"`
+	}{
+		{MsgType: fixtures.MsgText, Count: 4},
+		{MsgType: fixtures.MsgImage, Count: 1},
+		{MsgType: fixtures.MsgVoice, Count: 1},
+		{MsgType: fixtures.MsgVideo, Count: 1},
+		{MsgType: fixtures.MsgSystem, Count: 1},
+	}
+	if len(body.Types) != len(want) {
+		t.Fatalf("types %+v", body.Types)
+	}
+	for i, w := range want {
+		if body.Types[i].MsgType != w.MsgType || body.Types[i].Count != w.Count {
+			t.Fatalf("types %+v want %+v", body.Types, want)
+		}
+	}
+}
+
+func TestStatsRequiresAccount(t *testing.T) {
+	t.Parallel()
+	h := seededHandler(t)
+	rec := do(t, h, http.MethodGet, "/v1/stats")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", rec.Code)
+	}
+	assertErrorCode(t, rec, "invalid_request")
+}
+
+func TestStatsUnknownAccount(t *testing.T) {
+	t.Parallel()
+	h := seededHandler(t)
+	rec := do(t, h, http.MethodGet, "/v1/stats?account_id=missing")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status %d", rec.Code)
+	}
+	assertErrorCode(t, rec, "not_found")
+}
+
+func TestStatsEmptyAccount(t *testing.T) {
+	t.Parallel()
+	store, err := sqlite.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.PutAccount(context.Background(), domain.Account{
+		ID: "empty", WxID: "wxid_empty", LoginState: domain.LoginStateLoggedIn,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.OpenAccount(context.Background(), "wxid_empty"); err != nil {
+		t.Fatal(err)
+	}
+	h := handlerFor(t, store)
+	rec := do(t, h, http.MethodGet, "/v1/stats?account_id=empty")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.Bytes())
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"account_id":"empty","session_count":0,"message_count":0,"types":[]}` {
+		t.Fatalf("body %s", rec.Body.String())
+	}
+}
+
+func TestStatsAccountIsolation(t *testing.T) {
+	t.Parallel()
+	store, dir := seededStore(t)
+	if err := fixtures.SeedOther(context.Background(), store, dir); err != nil {
+		t.Fatal(err)
+	}
+	h := handlerFor(t, store)
+
+	rec := do(t, h, http.MethodGet, "/v1/stats?account_id="+fixtures.AccountID)
+	var a1 statsBody
+	decode(t, rec, &a1)
+	if rec.Code != http.StatusOK || a1.AccountID != fixtures.AccountID || a1.MessageCount != 8 {
+		t.Fatalf("a1 status %d %+v", rec.Code, a1)
+	}
+
+	rec = do(t, h, http.MethodGet, "/v1/stats?account_id="+fixtures.OtherAccountID)
+	var a2 statsBody
+	decode(t, rec, &a2)
+	if rec.Code != http.StatusOK || a2.AccountID != fixtures.OtherAccountID || a2.SessionCount != 2 || a2.MessageCount != 4 {
+		t.Fatalf("a2 status %d %+v", rec.Code, a2)
+	}
+	if len(a2.Types) != 1 || a2.Types[0].MsgType != fixtures.MsgText || a2.Types[0].Count != 4 {
+		t.Fatalf("a2 types %+v", a2.Types)
+	}
+}
+
 func TestEmptyStoreAccounts(t *testing.T) {
 	t.Parallel()
 	store, err := sqlite.Open(t.TempDir())
@@ -524,6 +630,16 @@ func handlerFor(t *testing.T, store *sqlite.Store) http.Handler {
 type msgPage struct {
 	Messages   []domain.Message `json:"messages"`
 	NextBefore string           `json:"next_before"`
+}
+
+type statsBody struct {
+	AccountID    string `json:"account_id"`
+	SessionCount int64  `json:"session_count"`
+	MessageCount int64  `json:"message_count"`
+	Types        []struct {
+		MsgType int   `json:"msg_type"`
+		Count   int64 `json:"count"`
+	} `json:"types"`
 }
 
 func idsOf(msgs []domain.Message) []string {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wxbackup/wxbackup/internal/app/stats"
 	"github.com/wxbackup/wxbackup/internal/domain"
 	"github.com/wxbackup/wxbackup/internal/store/fts"
 	"github.com/wxbackup/wxbackup/internal/store/sqlite"
@@ -54,6 +55,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/conversations/{id}/messages", s.handleMessages)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
 	mux.HandleFunc("GET /v1/media/{id}", s.handleMedia)
+	mux.HandleFunc("GET /v1/stats", s.handleStats)
 }
 
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
@@ -179,6 +181,21 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		msgs = []domain.Message{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+}
+
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	adb, acct, err := s.accountDB(r)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	snap, err := stats.Account(r.Context(), adb.Conn())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	snap.AccountID = acct.ID
+	writeJSON(w, http.StatusOK, snap)
 }
 
 func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
