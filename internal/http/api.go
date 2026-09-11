@@ -45,6 +45,11 @@ func New(store *sqlite.Store) *Server {
 
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/accounts", s.handleAccounts)
+	mux.HandleFunc("GET /v1/accounts/{id}/settings", s.handleGetSettings)
+	mux.HandleFunc("PUT /v1/accounts/{id}/settings", s.handlePutSettings)
+	mux.HandleFunc("PUT /v1/accounts/{id}/password", s.handlePutPassword)
+	mux.HandleFunc("POST /v1/accounts/{id}/password/verify", s.handleVerifyPassword)
+	mux.HandleFunc("DELETE /v1/accounts/{id}", s.handleDeleteAccount)
 	mux.HandleFunc("GET /v1/conversations", s.handleConversations)
 	mux.HandleFunc("GET /v1/conversations/{id}/messages", s.handleMessages)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
@@ -264,9 +269,18 @@ func writeAPIError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	if de, ok := domain.AsError(err); ok && de.Code == domain.CodeMediaNeverOpened {
-		writeError(w, http.StatusNotFound, err)
-		return
+	if de, ok := domain.AsError(err); ok {
+		switch de.Code {
+		case domain.CodeMediaNeverOpened:
+			writeError(w, http.StatusNotFound, err)
+			return
+		case domain.CodePasswordRequired:
+			writeError(w, http.StatusForbidden, err)
+			return
+		case domain.CodePasswordIncorrect:
+			writeError(w, http.StatusUnauthorized, err)
+			return
+		}
 	}
 	writeError(w, http.StatusInternalServerError, err)
 }

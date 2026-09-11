@@ -27,3 +27,7 @@ type Account struct {
 	BackupRoot    string     `json:"backup_root"`
 	AccessPwdHash string     `json:"-"`
 }
+
+func (a Account) HasPassword() bool {
+	return a.AccessPwdHash != ""
+}

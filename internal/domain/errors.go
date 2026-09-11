@@ -14,6 +14,8 @@ const (
 	CodeMediaNeverOpened   Code = "media_never_opened"
 	CodeDiscoveryPortInUse Code = "discovery_port_in_use"
 	CodeBackupCancelled    Code = "backup_cancelled"
+	CodePasswordRequired   Code = "password_required"
+	CodePasswordIncorrect  Code = "password_incorrect"
 )
 
 type Error struct {
@@ -54,6 +56,8 @@ var (
 	ErrMediaNeverOpened   = &Error{Code: CodeMediaNeverOpened, Message: "media is missing because it was never opened on the phone"}
 	ErrDiscoveryPortInUse = &Error{Code: CodeDiscoveryPortInUse, Message: "WeChat ports 8011/24011 are already in use"}
 	ErrBackupCancelled    = &Error{Code: CodeBackupCancelled, Message: "backup was cancelled"}
+	ErrPasswordRequired   = &Error{Code: CodePasswordRequired, Message: "access password is required"}
+	ErrPasswordIncorrect  = &Error{Code: CodePasswordIncorrect, Message: "access password is incorrect"}
 )
 
 func DiscoveryPortInUse(port int) *Error {

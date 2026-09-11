@@ -22,8 +22,47 @@ async function parseJSON(res) {
   return data
 }
 
+function sendJSON(method, path, body) {
+  return fetch(apiURL(path), {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  }).then(parseJSON)
+}
+
 export function getAccounts() {
   return fetch(apiURL('/v1/accounts')).then(parseJSON)
+}
+
+export function getAccountSettings(accountId) {
+  const id = encodeURIComponent(accountId)
+  return fetch(apiURL(`/v1/accounts/${id}/settings`)).then(parseJSON)
+}
+
+export function putAccountSettings(accountId, backupRoot) {
+  const id = encodeURIComponent(accountId)
+  return sendJSON('PUT', `/v1/accounts/${id}/settings`, { backup_root: backupRoot })
+}
+
+export function putAccountPassword(accountId, password) {
+  const id = encodeURIComponent(accountId)
+  return sendJSON('PUT', `/v1/accounts/${id}/password`, { password })
+}
+
+export function verifyAccountPassword(accountId, password) {
+  const id = encodeURIComponent(accountId)
+  return sendJSON('POST', `/v1/accounts/${id}/password/verify`, { password })
+}
+
+export function deleteAccount(accountId, password) {
+  const id = encodeURIComponent(accountId)
+  return sendJSON('DELETE', `/v1/accounts/${id}`, { password: password || '' })
+}
+
+export function canDeleteAccount({ hasPassword, password, confirmed }) {
+  if (!confirmed) return false
+  if (hasPassword && !String(password || '')) return false
+  return true
 }
 
 export function getConversations(accountId) {

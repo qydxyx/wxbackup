@@ -75,6 +75,8 @@ func TestTypedErrors(t *testing.T) {
 		ErrMediaNeverOpened,
 		ErrDiscoveryPortInUse,
 		ErrBackupCancelled,
+		ErrPasswordRequired,
+		ErrPasswordIncorrect,
 	}
 	seen := map[Code]bool{}
 	for _, e := range sentinels {
@@ -117,6 +119,9 @@ func TestSyntheticFixtureJSON(t *testing.T) {
 	}
 	if got := string(raw); strings.Contains(got, "not-serialized") {
 		t.Fatalf("password hash leaked: %s", got)
+	}
+	if !acct.HasPassword() {
+		t.Fatal("non-empty hash should count as set")
 	}
 	_ = conv
 	_ = msg

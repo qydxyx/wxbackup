@@ -1,9 +1,17 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiURL } from '../api'
+import { apiURL, canDeleteAccount } from '../api'
 import { useAccountsStore } from './accounts'
 import { messagePreview } from '../messages'
 import { applyTheme, isCgiBase, showH5FirstLoginBanner } from '../theme'
+
+function jsonRes(body, ok = true) {
+  return {
+    ok,
+    statusText: ok ? 'OK' : 'Error',
+    text: async () => JSON.stringify(body),
+  }
+}
 
 describe('accounts store', () => {
   beforeEach(() => {
@@ -36,6 +44,42 @@ describe('accounts store', () => {
     expect(store.error).toBe('')
   })
 
+  it('saves backup path and password then rejects delete without password', async () => {
+    const fetchMock = vi.fn(async (url, opts = {}) => {
+      const method = opts.method || 'GET'
+      if (url === apiURL('/v1/accounts') && method === 'GET') {
+        return jsonRes({ accounts: [{ id: 'a1', nickname: 'Fixture User', login_state: 'logged_in' }] })
+      }
+      if (url === apiURL('/v1/accounts/a1/settings') && method === 'GET') {
+        return jsonRes({ backup_root: '/data/old', has_password: false })
+      }
+      if (url === apiURL('/v1/accounts/a1/settings') && method === 'PUT') {
+        return jsonRes({ backup_root: JSON.parse(opts.body).backup_root, has_password: false })
+      }
+      if (url === apiURL('/v1/accounts/a1/password') && method === 'PUT') {
+        return jsonRes({ ok: true, has_password: true })
+      }
+      if (url === apiURL('/v1/accounts/a1') && method === 'DELETE') {
+        return jsonRes({ error: { code: 'password_required', message: 'access password is required' } }, false)
+      }
+      return jsonRes({ error: { message: 'unexpected ' + method + ' ' + url } }, false)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAccountsStore()
+    await store.fetchAccounts()
+    expect(store.settings.a1.backup_root).toBe('/data/old')
+
+    await store.saveBackupRoot('a1', '/data/custom')
+    expect(store.settings.a1.backup_root).toBe('/data/custom')
+
+    await store.setPassword('a1', 'secret')
+    expect(store.settings.a1.has_password).toBe(true)
+
+    await expect(store.removeAccount('a1', { password: '', confirmed: true })).rejects.toThrow('请输入访问密码')
+    expect(store.accounts).toHaveLength(1)
+    expect(fetchMock).not.toHaveBeenCalledWith(apiURL('/v1/accounts/a1'), expect.objectContaining({ method: 'DELETE' }))
+  })
+
   it('records API errors', async () => {
     vi.stubGlobal(
       'fetch',
@@ -62,6 +106,15 @@ describe('messagePreview', () => {
     expect(messagePreview({ msg_type: 10000, text: 'synthetic system notice' })).toBe(
       'synthetic system notice',
     )
+  })
+})
+
+describe('canDeleteAccount', () => {
+  it('rejects delete without confirm or password when hash is set', () => {
+    expect(canDeleteAccount({ hasPassword: true, password: 'x', confirmed: false })).toBe(false)
+    expect(canDeleteAccount({ hasPassword: true, password: '', confirmed: true })).toBe(false)
+    expect(canDeleteAccount({ hasPassword: true, password: 'secret', confirmed: true })).toBe(true)
+    expect(canDeleteAccount({ hasPassword: false, password: '', confirmed: true })).toBe(true)
   })
 })
 

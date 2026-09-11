@@ -217,6 +217,52 @@ html.dark .notice {
   text-align: center;
 }
 
+.settings-title {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--weui-FG-1);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  text-align: left;
+}
+
+.field span {
+  font-size: 13px;
+  color: var(--weui-FG-1);
+}
+
+.field input {
+  border: 1px solid var(--weui-LINE);
+  background: var(--weui-BG);
+  color: var(--weui-FG);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 14px;
+  text-align: left;
+}
+
+.muted-inline {
+  color: var(--weui-FG-1);
+  font-size: 13px;
+  align-self: center;
+}
+
+.dialog-form {
+  text-align: left;
+}
+
 .qr-placeholder {
   width: 180px;
   height: 180px;

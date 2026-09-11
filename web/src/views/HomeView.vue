@@ -1,14 +1,21 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
+import { canDeleteAccount } from '../api'
 import { useAccountsStore } from '../stores/accounts'
 import { applyTheme, readTheme, showH5FirstLoginBanner, toggleTheme } from '../theme'
 import { loginStateLabel } from '../messages'
 
 const store = useAccountsStore()
-const { accounts, loading, error, hasLoggedIn } = storeToRefs(store)
+const { accounts, settings, loading, error, hasLoggedIn } = storeToRefs(store)
 const theme = ref(readTheme())
 const loginOpen = ref(false)
+const backupRoot = reactive({})
+const newPassword = reactive({})
+const deleting = ref(null)
+const deletePassword = ref('')
+const deleteConfirmed = ref(false)
+const busy = ref(false)
 
 const showBanner = computed(() =>
   showH5FirstLoginBanner({
@@ -17,9 +24,21 @@ const showBanner = computed(() =>
   }),
 )
 
-onMounted(() => {
+const deleteReady = computed(() => {
+  if (!deleting.value) return false
+  return canDeleteAccount({
+    hasPassword: !!settings.value[deleting.value.id]?.has_password,
+    password: deletePassword.value,
+    confirmed: deleteConfirmed.value,
+  })
+})
+
+onMounted(async () => {
   applyTheme(theme.value)
-  store.fetchAccounts()
+  await store.fetchAccounts()
+  for (const a of store.accounts) {
+    backupRoot[a.id] = store.settings[a.id]?.backup_root || ''
+  }
 })
 
 function onToggleTheme() {
@@ -28,6 +47,62 @@ function onToggleTheme() {
 
 function openLogin() {
   loginOpen.value = true
+}
+
+async function savePath(a) {
+  busy.value = true
+  try {
+    await store.saveBackupRoot(a.id, backupRoot[a.id] || '')
+  } catch {
+    /* store.error */
+  } finally {
+    busy.value = false
+  }
+}
+
+async function savePassword(a) {
+  const pwd = newPassword[a.id] || ''
+  if (!pwd) {
+    store.error = '请输入访问密码'
+    return
+  }
+  busy.value = true
+  try {
+    await store.setPassword(a.id, pwd)
+    newPassword[a.id] = ''
+  } catch {
+    /* store.error */
+  } finally {
+    busy.value = false
+  }
+}
+
+function openDelete(a) {
+  deleting.value = a
+  deletePassword.value = ''
+  deleteConfirmed.value = false
+}
+
+function closeDelete() {
+  deleting.value = null
+  deletePassword.value = ''
+  deleteConfirmed.value = false
+}
+
+async function confirmDelete() {
+  if (!deleting.value || !deleteReady.value) return
+  busy.value = true
+  try {
+    await store.removeAccount(deleting.value.id, {
+      password: deletePassword.value,
+      confirmed: deleteConfirmed.value,
+    })
+    closeDelete()
+  } catch {
+    /* store.error */
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -66,10 +141,26 @@ function openLogin() {
           <button class="weui-btn" type="button" @click="openLogin">登录</button>
           <button class="weui-btn" type="button" disabled>备份</button>
           <button class="weui-btn" type="button" disabled>恢复</button>
-          <button class="weui-btn warn" type="button" disabled>删除</button>
+          <button class="weui-btn warn" type="button" @click="openDelete(a)">删除</button>
           <router-link class="weui-btn plain" :to="{ name: 'chat', params: { accountId: a.id } }">
             聊天
           </router-link>
+        </div>
+        <div class="settings-title">备份设置</div>
+        <label class="field">
+          <span>备份路径</span>
+          <input v-model="backupRoot[a.id]" type="text" autocomplete="off" />
+        </label>
+        <div class="actions">
+          <button class="weui-btn" type="button" :disabled="busy" @click="savePath(a)">保存路径</button>
+        </div>
+        <label class="field">
+          <span>访问密码</span>
+          <input v-model="newPassword[a.id]" type="password" autocomplete="new-password" />
+        </label>
+        <div class="actions">
+          <button class="weui-btn" type="button" :disabled="busy" @click="savePassword(a)">设置密码</button>
+          <span v-if="settings[a.id]?.has_password" class="muted-inline">已设置</span>
         </div>
       </article>
     </main>
@@ -79,6 +170,26 @@ function openLogin() {
         <div>扫码登录即将提供</div>
         <div class="qr-placeholder">QR</div>
         <button class="weui-btn" type="button" @click="loginOpen = false">关闭</button>
+      </div>
+    </div>
+
+    <div v-if="deleting" class="mask" @click.self="closeDelete">
+      <div class="dialog dialog-form">
+        <div>确认删除「{{ deleting.nickname || deleting.wxid || deleting.id }}」的备份？</div>
+        <label class="field">
+          <span>访问密码</span>
+          <input v-model="deletePassword" type="password" autocomplete="current-password" />
+        </label>
+        <label class="check">
+          <input v-model="deleteConfirmed" type="checkbox" />
+          我确认删除此账号备份
+        </label>
+        <div class="actions">
+          <button class="weui-btn plain" type="button" @click="closeDelete">取消</button>
+          <button class="weui-btn warn" type="button" :disabled="busy || !deleteReady" @click="confirmDelete">
+            确认删除
+          </button>
+        </div>
       </div>
     </div>
   </div>
