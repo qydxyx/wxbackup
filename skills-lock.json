@@ -1,0 +1,269 @@
+{
+  "version": 1,
+  "skills": {
+    "api-security": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/api-security/SKILL.md",
+      "computedHash": "826975b3bf93f38a55bb9d61342b7831abf9d950a9e2e8a703ddda6afc7a84cb"
+    },
+    "apk-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/apk-reverse/SKILL.md",
+      "computedHash": "e9368bc638983f89d8a17044282f647495761cb74ef3fa378a7417aea519b89b"
+    },
+    "attack-chain": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/attack-chain/SKILL.md",
+      "computedHash": "5fcec680fa941c4a79e32380c88ea1824bbe6b0b6454d1a460ebfa0861504aa7"
+    },
+    "binary-diff": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/binary-diff/SKILL.md",
+      "computedHash": "1f07b5c1a57bde66b12faad7041754a2bf70a5288627ed281f348a3c61016309"
+    },
+    "binary-ninja-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/binary-ninja-reverse/SKILL.md",
+      "computedHash": "6de9f43068a1e9929ca6034d21a98a956f650ce04df2e80baadd7332ce58d9ef"
+    },
+    "browser-automation": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/browser-automation/SKILL.md",
+      "computedHash": "e4487ebc8adf524ff3b6a30135296fc70d037d8e1491b86fb0ceaed0387197c6"
+    },
+    "browser-extension-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/browser-extension-reverse/SKILL.md",
+      "computedHash": "0e2781ccb9a42c9b7b3209266d0c264aedcb99a5b52d5a36b1f48e49eef955d2"
+    },
+    "case-review": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/case-review/SKILL.md",
+      "computedHash": "5408317a3ff24afb257e0faab215b1a25776c9aa70215a2b1f46181942aaa8cd"
+    },
+    "cloud-k8s": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/cloud-k8s/SKILL.md",
+      "computedHash": "31438f45c5617ba10f268d67b5d4c24c0946bf41217fca4fe45a64cc152806a2"
+    },
+    "code-audit": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/code-audit/SKILL.md",
+      "computedHash": "e83aa9774073d7b8a9278cb2223d9e4bf2652d1407dcd97dea30c3a59ce35c7f"
+    },
+    "ctf-sandbox": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/ctf-sandbox/SKILL.md",
+      "computedHash": "b5cc3ab9f9357878267383a6b670938eec3ff677be8fd23619754400d665c336"
+    },
+    "database-security": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/database-security/SKILL.md",
+      "computedHash": "abd32418b0fa0e222d16c2f326b4b07cdd22ea6af3dc31d7e5131b615cffd414"
+    },
+    "diagram-generator": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/diagram-generator/SKILL.md",
+      "computedHash": "903736e7f8fb6e70619c55a5aa64dfdf6fe5d91ed0bdaac5565282766c110a71"
+    },
+    "digital-forensics": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/digital-forensics/SKILL.md",
+      "computedHash": "3c9100c4cf9949d19925aad5cd99eef324cb7c094a9e8da397c947aa7b06da2d"
+    },
+    "docs-generator": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/docs-generator/SKILL.md",
+      "computedHash": "d1a15948671e3b6753bb985cfe6f0b57b5bc588fba3018973a397f74f46251db"
+    },
+    "dotnet-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/dotnet-reverse/SKILL.md",
+      "computedHash": "a71ba479a1e9e5c2c2cbc311bdefbccc7c8b70cc1b2f2e75a420de9dac29eb39"
+    },
+    "edr-bypass-re": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/edr-bypass-re/SKILL.md",
+      "computedHash": "90d24af1c1553a6259601b286e86df4fd5dffde29aeb034dc4eac567c20bacd3"
+    },
+    "email-security": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/email-security/SKILL.md",
+      "computedHash": "1c4e35d05b416f0ba2bcd128b3f11a276fbc13843084918f51f6511f300d1ce7"
+    },
+    "firmware-pentest": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/firmware-pentest/SKILL.md",
+      "computedHash": "bab1a593cdac10ca496f6627a93181af054694723912ffe6cef76242f3bf2339"
+    },
+    "ghidra-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/ghidra-reverse/SKILL.md",
+      "computedHash": "da4f73176f8b6d208812dba4d9bf6f177fb3f512ed3568f7883a77a3a08db3c9"
+    },
+    "go-rust-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/go-rust-reverse/SKILL.md",
+      "computedHash": "6e379e728931324e03ee253fa0c00d3266d5cb0cc88a7b31ef2cd924881a97de"
+    },
+    "hardware-security": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/hardware-security/SKILL.md",
+      "computedHash": "d3fa299b48b6c1a57d582539c5f9f69115c1a2b8c38e22881882f52125d3e990"
+    },
+    "ida-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/ida-reverse/SKILL.md",
+      "computedHash": "bae4318116e65ba5b3805a423581639734754ba2912cac614f7f40bad4a1711a"
+    },
+    "identity-federation": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/identity-federation/SKILL.md",
+      "computedHash": "e7da7419ba3f6e5dd364c3d6624e2ad10cb17bf7d1dcdbe5395f68c4c59230c9"
+    },
+    "js-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/js-reverse/SKILL.md",
+      "computedHash": "086105c493f45311c700fb1f9483b35019b9dc3fec1ed13c02533ebc2746c169"
+    },
+    "llm-security": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/llm-security/SKILL.md",
+      "computedHash": "495bf62efb8eb695ab3ced143e7e4f9c49dbab618d9aedd3c3db1098de44c54b"
+    },
+    "macos-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/macos-reverse/SKILL.md",
+      "computedHash": "940526e13e013267b353b5d66bf18aea0d4b3bd006d89f008c2c149e5951b533"
+    },
+    "malware-analysis": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/malware-analysis/SKILL.md",
+      "computedHash": "e9b2a7ef2cd726e93ff3179a885f959a2448c87a9dea840a70550107d4bcca6e"
+    },
+    "mobile-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/mobile-reverse/SKILL.md",
+      "computedHash": "dfc9df9eace24c774a8cc7c9cb481727df5620098945d082cb46c48e0f3beecd"
+    },
+    "ot-ics": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/ot-ics/SKILL.md",
+      "computedHash": "8fa3b53199303afffeeaeb61d54f33655c4255f514856e1d93a11f9d56639e2a"
+    },
+    "patch-diff-exploit": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/patch-diff-exploit/SKILL.md",
+      "computedHash": "d96551f16cf40900eadf2f845d9d771350de2694f470d998412610c60baf1329"
+    },
+    "pentest-tools": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/pentest-tools/SKILL.md",
+      "computedHash": "5e9ffae2f93132d5d3fb8b157eace20fcefb7a1e72c568045efca0a0c4ea385d"
+    },
+    "protocol-reverse": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/protocol-reverse/SKILL.md",
+      "computedHash": "6638266479be7cb5dd5f10259761db5a07e96882fb51dc6f7c79f8071d8f3b71"
+    },
+    "pwn-chain": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/pwn-chain/SKILL.md",
+      "computedHash": "d80b0fd600802e0f0553658b60221d45b50bf613f0aa559e7d4abf6b3eb7f694"
+    },
+    "radare2": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/radare2/SKILL.md",
+      "computedHash": "516be7ebaf763c17b394d0c453bb8778be6175cd6af3d1e109fa4c656f9f0792"
+    },
+    "radio-sdr": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/radio-sdr/SKILL.md",
+      "computedHash": "17cd1f3b04fc3c24ef85bace517aad1006774c796ccabf5ffecf28bd0615f69e"
+    },
+    "reverse-engineering": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/reverse-engineering/SKILL.md",
+      "computedHash": "e8bb0cb061af823237822221abdc4a749ee2187c9f532c11e91e678efc76ee7b"
+    },
+    "reverse-skill-router": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/SKILL.md",
+      "computedHash": "645a37ea7ab0bac3099861bbca7a122d507f93115a63b90ae981010814ae2415"
+    },
+    "supply-chain-security": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/supply-chain-security/SKILL.md",
+      "computedHash": "cf244783c38690b4c6eab39e52a267e7e0c66ad40bf82e2812d22c5c0b6d3a6d"
+    },
+    "thick-client": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/thick-client/SKILL.md",
+      "computedHash": "7e5d79f665554043608acf4534488b1b4ff33fab79041223b2782fd6ae67003a"
+    },
+    "threat-hunting": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threat-hunting/SKILL.md",
+      "computedHash": "e45ea15cfcff94afce333f740a6643af60a812c83a8b138419e79ef8d53d080d"
+    },
+    "threat-intelligence": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threat-intelligence/SKILL.md",
+      "computedHash": "e1b6427e66bfcd4fdd581cfb94984dcac8d8f457ab422f2c0eefd94ea23fddf6"
+    },
+    "wifi-wireless": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/wifi-wireless/SKILL.md",
+      "computedHash": "b8fe92285fa46f0ddcdb04c37320dda17cfc833328fea51033c1eaeaf61bde1f"
+    },
+    "windows-ad": {
+      "source": "zhaoxuya520/reverse-skill",
+      "sourceType": "github",
+      "skillPath": "skills/windows-ad/SKILL.md",
+      "computedHash": "1767f3acfc855fa3b58272bc571e08e77f3ebfea0d363aa89a472bf74d615db3"
+    }
+  }
+}
