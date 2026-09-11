@@ -1,21 +1,3 @@
-const TYPE_LABEL = {
-  1: null,
-  3: '[图片]',
-  34: '[语音]',
-  43: '[视频]',
-  10000: null,
-}
-
-export function messagePreview(msg) {
-  if (!msg) return ''
-  const label = TYPE_LABEL[msg.msg_type]
-  if (label) return label
-  const text = (msg.text || '').trim()
-  if (text) return text
-  if (msg.msg_type === 10000) return '[系统]'
-  return '[消息]'
-}
-
 export function formatTime(iso) {
   if (!iso) return ''
   const d = new Date(iso)

@@ -1,0 +1,100 @@
+.msg-card {
+  min-width: 0;
+}
+
+.msg-card-kicker {
+  font-size: 12px;
+  color: var(--weui-FG-1);
+  margin-bottom: 4px;
+}
+
+.msg-card-title {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.msg-card-desc {
+  font-size: 13px;
+  color: var(--weui-FG-1);
+  margin-top: 4px;
+}
+
+.msg-thumb {
+  display: block;
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: 4px;
+  background: var(--weui-LINE);
+}
+
+.msg-media-missing {
+  font-size: 13px;
+  color: var(--weui-FG-1);
+}
+
+.msg-voice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 80px;
+}
+
+.msg-voice-bar {
+  width: 48px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--weui-BRAND);
+  opacity: 0.7;
+}
+
+.msg-quote-ref {
+  border-left: 3px solid var(--weui-LINE);
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--weui-FG-1);
+}
+
+.msg-pay {
+  border-radius: 6px;
+  padding: 10px 12px;
+  min-width: 160px;
+  color: #fff;
+}
+
+.msg-pay-kicker {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.msg-pay-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.msg-pay-status {
+  font-size: 12px;
+  margin-top: 6px;
+  opacity: 0.9;
+}
+
+.msg-redpacket {
+  background: #e4554d;
+}
+
+.msg-transfer {
+  background: #f0a020;
+}
+
+.bubble.kind-redpacket,
+.bubble.kind-transfer {
+  padding: 0;
+  background: transparent;
+}
+
+.bubble-row.send .bubble.kind-redpacket,
+.bubble-row.send .bubble.kind-transfer {
+  background: transparent;
+  color: #fff;
+}

@@ -2,7 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '../stores/chat'
-import { formatTime, kindLabel, messagePreview } from '../messages'
+import { formatTime, kindLabel } from '../messages'
+import MessageItem from '../messages/MessageItem.vue'
 import { applyTheme, readTheme, toggleTheme } from '../theme'
 
 const props = defineProps({
@@ -29,10 +30,6 @@ watch(
 
 function onToggleTheme() {
   theme.value = toggleTheme(theme.value)
-}
-
-function isSys(msg) {
-  return msg.msg_type === 10000
 }
 </script>
 
@@ -80,17 +77,7 @@ function isSys(msg) {
         <p v-else-if="error" class="error">{{ error }}</p>
         <p v-else-if="!messages.length" class="empty">暂无消息</p>
         <template v-else>
-          <div
-            v-for="m in messages"
-            :key="m.msg_id"
-            class="bubble-row"
-            :class="{ send: m.is_send, sys: isSys(m) }"
-          >
-            <div class="bubble" :class="{ sys: isSys(m) }">
-              {{ messagePreview(m) }}
-              <div v-if="!isSys(m)" class="bubble-time">{{ formatTime(m.create_time) }}</div>
-            </div>
-          </div>
+          <MessageItem v-for="m in messages" :key="m.msg_id" :msg="m" />
         </template>
       </div>
     </section>
