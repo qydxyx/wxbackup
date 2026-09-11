@@ -38,7 +38,14 @@ func WriteWithOptions(dir string, snap Snapshot, opts Options) error {
 	if err := clearPackageFiles(dir); err != nil {
 		return err
 	}
+	if err := writePackage(dir, snap, max); err != nil {
+		_ = clearPackageFiles(dir)
+		return err
+	}
+	return nil
+}
 
+func writePackage(dir string, snap Snapshot, max int64) error {
 	dbPath := filepath.Join(dir, BackupDBName)
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -56,7 +63,13 @@ func WriteWithOptions(dir string, snap Snapshot, opts Options) error {
 		return err
 	}
 
-	if _, err := db.Exec(`INSERT INTO Meta(key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?)`,
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(`INSERT INTO Meta(key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?)`,
 		"format", InterchangeFormat,
 		"version", InterchangeVersion,
 		"account_id", snap.AccountID,
@@ -64,12 +77,6 @@ func WriteWithOptions(dir string, snap Snapshot, opts Options) error {
 	); err != nil {
 		return err
 	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
 
 	for _, c := range snap.Conversations {
 		if c.TalkerID == "" {
@@ -132,8 +139,8 @@ func WriteWithOptions(dir string, snap Snapshot, opts Options) error {
 		if err != nil {
 			return err
 		}
-		available := m.Available
-		size := m.Size
+		available := false
+		var size int64
 		if len(blob) > 0 {
 			available = true
 			size = int64(len(blob))
@@ -309,9 +316,6 @@ func mediaBytes(snap Snapshot, m domain.MediaObject) ([]byte, error) {
 	}
 	b, err := os.ReadFile(m.Path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	return b, nil
@@ -400,7 +404,7 @@ func clearPackageFiles(dir string) error {
 	}
 	for _, e := range ents {
 		name := e.Name()
-		if name == BackupDBName || isShardName(name) {
+		if name == BackupDBName || name == BackupDBName+"-wal" || name == BackupDBName+"-shm" || isShardName(name) {
 			if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
 				return err
 			}

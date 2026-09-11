@@ -83,8 +83,19 @@ func TestRoundTrip(t *testing.T) {
 	if !got.Messages[0].CreateTime.Equal(now) {
 		t.Fatalf("time %v", got.Messages[0].CreateTime)
 	}
-	if len(got.Media) != 1 || !got.Media[0].Available || !bytes.Equal(got.MediaBlobs["md1"], []byte("JPEG")) {
+	if len(got.Media) != 1 || !got.Media[0].Available || got.Media[0].Path != "" || !bytes.Equal(got.MediaBlobs["md1"], []byte("JPEG")) {
 		t.Fatalf("media %+v blobs=%v", got.Media, got.MediaBlobs)
+	}
+	out := t.TempDir()
+	if err := Write(out, got); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Read(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(again.MediaBlobs["md1"], []byte("JPEG")) {
+		t.Fatalf("read-write dropped media: %v", again.MediaBlobs)
 	}
 }
 
@@ -194,10 +205,39 @@ func TestOurFormatBadShardNeedsKey(t *testing.T) {
 	if len(got.Conversations) != 1 {
 		t.Fatalf("sessions %+v", got.Conversations)
 	}
-	for _, m := range got.Messages {
-		if m.Text == "secret" {
-			t.Fatal("decoded body from unreadable shard")
-		}
+	if len(got.Messages) != 0 || len(got.MediaBlobs) != 0 {
+		t.Fatalf("must not invent bodies from unreadable shard: %+v", got)
+	}
+}
+
+func TestOurFormatBadMediaShardNeedsKey(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	snap := Snapshot{
+		AccountID: "a1",
+		Conversations: []domain.Conversation{{
+			AccountID: "a1", TalkerID: "wxid_friend", Kind: domain.ConversationFriend,
+		}},
+		Media: []domain.MediaObject{{
+			AccountID: "a1", MediaID: "md1", Kind: domain.MediaKindImage,
+		}},
+		MediaBlobs: map[string][]byte{"md1": []byte("JPEG")},
+	}
+	if err := Write(dir, snap); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "BAK_0_MEDIA"), bytes.Repeat([]byte{0x33}, 128), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(dir)
+	if !errors.Is(err, ErrNeedsKey) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(got.Conversations) != 1 {
+		t.Fatalf("sessions %+v", got.Conversations)
+	}
+	if len(got.Messages) != 0 || len(got.MediaBlobs) != 0 {
+		t.Fatalf("must not invent media from unreadable shard: %+v", got)
 	}
 }
 
@@ -261,9 +301,13 @@ func TestImportCanonical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got.Media[0].Path != "" {
+		t.Fatalf("reader path should be empty, got %q", got.Media[0].Path)
+	}
 
+	dataDir := t.TempDir()
 	ctx := context.Background()
-	store, err := sqlite.Open(t.TempDir())
+	store, err := sqlite.Open(dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +331,15 @@ func TestImportCanonical(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	blobPath := filepath.Join(dataDir, "accounts", "wxid_fixture", "media", "md1")
+	if err := os.MkdirAll(filepath.Dir(blobPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blobPath, got.MediaBlobs["md1"], 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for _, m := range got.Media {
+		m.Path = blobPath
 		if err := acct.PutMedia(ctx, m); err != nil {
 			t.Fatal(err)
 		}
@@ -297,8 +349,111 @@ func TestImportCanonical(t *testing.T) {
 		t.Fatalf("%+v %v", list, err)
 	}
 	media, err := acct.GetMedia(ctx, "md1")
-	if err != nil || !media.Available || media.SHA256 != "ff" {
+	if err != nil || !media.Available || media.SHA256 != "ff" || media.Path != blobPath {
 		t.Fatalf("%+v %v", media, err)
+	}
+	body, err := os.ReadFile(media.Path)
+	if err != nil || !bytes.Equal(body, []byte("ABC")) {
+		t.Fatalf("path %s not usable: %s %v", media.Path, body, err)
+	}
+}
+
+func TestFailedWriteLeavesNoPackage(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	err := Write(dir, Snapshot{
+		AccountID: "a1",
+		Conversations: []domain.Conversation{{
+			AccountID: "a1", TalkerID: "wxid_friend", Kind: domain.ConversationFriend,
+		}},
+		Messages: []domain.Message{{
+			AccountID: "a1", TalkerID: "wxid_friend", Text: "nope",
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected write error")
+	}
+	if _, err := Read(dir); !errors.Is(err, ErrNotPackage) {
+		t.Fatalf("failed write left a readable package: %v", err)
+	}
+}
+
+func TestMissingMediaPathError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	err := Write(dir, Snapshot{
+		AccountID: "a1",
+		Conversations: []domain.Conversation{{
+			AccountID: "a1", TalkerID: "wxid_friend", Kind: domain.ConversationFriend,
+		}},
+		Media: []domain.MediaObject{{
+			AccountID: "a1", MediaID: "md1", Kind: domain.MediaKindImage,
+			Path: filepath.Join(dir, "missing.bin"), Available: true, Size: 9,
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected missing path error")
+	}
+	if _, err := Read(dir); !errors.Is(err, ErrNotPackage) {
+		t.Fatalf("failed write left a package: %v", err)
+	}
+}
+
+func TestMediaWithoutPayloadUnavailable(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := Write(dir, Snapshot{
+		AccountID: "a1",
+		Conversations: []domain.Conversation{{
+			AccountID: "a1", TalkerID: "wxid_friend", Kind: domain.ConversationFriend,
+		}},
+		Media: []domain.MediaObject{{
+			AccountID: "a1", MediaID: "md1", Kind: domain.MediaKindImage,
+			Available: true, Size: 99,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Media) != 1 || got.Media[0].Available || got.Media[0].Size != 0 {
+		t.Fatalf("claimed payload that was not written: %+v", got.Media)
+	}
+	if len(got.MediaBlobs["md1"]) != 0 {
+		t.Fatalf("invented blob: %v", got.MediaBlobs)
+	}
+}
+
+func TestRejectOversizeSegment(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := Write(dir, Snapshot{
+		AccountID: "a1",
+		Conversations: []domain.Conversation{{
+			AccountID: "a1", TalkerID: "wxid_friend", Kind: domain.ConversationFriend, MsgCount: 1,
+		}},
+		Messages: []domain.Message{{
+			AccountID: "a1", TalkerID: "wxid_friend", MsgID: "m1", MsgSeq: 1,
+			MsgType: 1, CreateTime: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Text: "x",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(dir, BackupDBName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE MsgSegments SET length = ?`, maxSegmentBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Read(dir)
+	if err == nil || errors.Is(err, ErrNeedsKey) {
+		t.Fatalf("want hard length error, got %v", err)
 	}
 }
 

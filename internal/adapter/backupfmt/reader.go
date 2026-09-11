@@ -229,7 +229,7 @@ func readMedia(db *sql.DB, dir string) ([]domain.MediaObject, map[string][]byte,
 		blobs[mediaID] = append(blobs[mediaID], b...)
 		for i := range media {
 			if media[i].MediaID == mediaID {
-				media[i].Path = fmt.Sprintf("BAK_%d_MEDIA", file)
+				// Path stays empty: BAK_* is a packed shard, not an object file.
 				media[i].Size = int64(len(blobs[mediaID]))
 				media[i].Available = true
 			}
@@ -254,6 +254,9 @@ func readShardRange(dir, kind string, file int, off, length int64, magic string)
 	}
 	if length < 0 {
 		return nil, fmt.Errorf("backupfmt: negative segment length")
+	}
+	if length > maxSegmentBytes {
+		return nil, fmt.Errorf("backupfmt: segment length %d exceeds %d", length, maxSegmentBytes)
 	}
 	buf := make([]byte, length)
 	if length == 0 {

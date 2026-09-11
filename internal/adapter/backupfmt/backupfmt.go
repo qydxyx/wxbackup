@@ -28,6 +28,9 @@ const (
 	InterchangeVersion = "1"
 
 	defaultMaxShard = 4 << 20
+	// Hard cap on a single MsgSegments/MsgFileSegments length so a hostile
+	// index cannot OOM the importer with make([]byte, length).
+	maxSegmentBytes = 64 << 20
 )
 
 var (
@@ -49,6 +52,9 @@ type Snapshot struct {
 	Media         []domain.MediaObject
 	// MediaBlobs is optional payload keyed by media_id. Writer copies these
 	// bytes into BAK_*_MEDIA; Reader fills them when shards are plaintext.
+	// Reader leaves MediaObject.Path empty — the shard file is not a locator
+	// for one object — so a Read→Write cycle must use MediaBlobs (or a real
+	// filesystem Path supplied by the caller).
 	MediaBlobs map[string][]byte
 }
 
