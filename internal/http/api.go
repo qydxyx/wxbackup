@@ -109,7 +109,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 		before = &c
 	}
-	msgs, err := adb.ListMessages(r.Context(), talkerID, before, limit)
+	// Peek one extra row so a full last page does not look like has-more.
+	msgs, err := adb.ListMessages(r.Context(), talkerID, before, limit+1)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -118,7 +119,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		msgs = []domain.Message{}
 	}
 	body := map[string]any{"messages": msgs}
-	if len(msgs) == limit && limit > 0 {
+	if len(msgs) > limit {
+		msgs = msgs[:limit]
+		body["messages"] = msgs
 		body["next_before"] = encodeBefore(sqlite.CursorFromMessage(msgs[len(msgs)-1]))
 	}
 	writeJSON(w, http.StatusOK, body)

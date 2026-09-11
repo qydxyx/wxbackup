@@ -17,10 +17,15 @@ const (
 	AccountID        = "a1"
 	WxID             = "wxid_fixture"
 	Nickname         = "Fixture User"
+	OtherAccountID   = "a2"
+	OtherWxID        = "wxid_other"
+	OtherNickname    = "Other Fixture"
 	FriendTalkerID   = "wxid_friend"
 	GroupTalkerID    = "wxid_group"
 	FriendName       = "Synthetic Friend"
 	GroupName        = "Synthetic Group"
+	OtherFriendName  = "Other Friend"
+	OtherGroupName   = "Other Group"
 	AvailableMediaID = "media_available"
 	MissingMediaID   = "media_missing"
 
@@ -113,6 +118,62 @@ func Seed(ctx context.Context, store *sqlite.Store, dataDir string) error {
 		{AccountID: AccountID, TalkerID: GroupTalkerID, MsgID: "g2", MsgSeq: 2, MsgType: MsgText, CreateTime: groupLast, Text: "group later"},
 	}
 	for _, m := range groupMsgs {
+		if err := adb.PutMessage(ctx, m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SeedOther writes a second account that reuses talker/media ids with
+// different payloads so viewer tests can prove account_id isolation.
+func SeedOther(ctx context.Context, store *sqlite.Store, dataDir string) error {
+	if store == nil {
+		return fmt.Errorf("fixtures: store is required")
+	}
+	acct := domain.Account{
+		ID:            OtherAccountID,
+		WxID:          OtherWxID,
+		Nickname:      OtherNickname,
+		LoginState:    domain.LoginStateLoggedIn,
+		BackupRoot:    filepath.Join(dataDir, OtherWxID),
+		AccessPwdHash: "other-not-serialized",
+	}
+	if err := store.PutAccount(ctx, acct); err != nil {
+		return err
+	}
+	adb, err := store.OpenAccount(ctx, OtherWxID)
+	if err != nil {
+		return err
+	}
+	base := time.Date(2024, 1, 2, 3, 4, 0, 0, time.UTC)
+	friendLast := base.Add(6 * time.Second)
+	if err := adb.PutConversation(ctx, domain.Conversation{
+		AccountID: OtherAccountID, TalkerID: FriendTalkerID, Kind: domain.ConversationFriend,
+		DisplayName: OtherFriendName, LastMsgTime: friendLast, MsgCount: 2,
+	}); err != nil {
+		return err
+	}
+	if err := adb.PutConversation(ctx, domain.Conversation{
+		AccountID: OtherAccountID, TalkerID: GroupTalkerID, Kind: domain.ConversationGroup,
+		DisplayName: OtherGroupName, LastMsgTime: base.Add(2 * time.Second), MsgCount: 1,
+	}); err != nil {
+		return err
+	}
+	// Same media_id as a1 but never opened: GET must 404, not a1's bytes.
+	if err := adb.PutMedia(ctx, domain.MediaObject{
+		AccountID: OtherAccountID, MediaID: AvailableMediaID, Kind: domain.MediaKindImage,
+		Available: false,
+	}); err != nil {
+		return err
+	}
+	msgs := []domain.Message{
+		{AccountID: OtherAccountID, TalkerID: FriendTalkerID, MsgID: "m1", MsgSeq: 1, MsgType: MsgText, CreateTime: base.Add(1 * time.Second), Text: "other-hello"},
+		{AccountID: OtherAccountID, TalkerID: FriendTalkerID, MsgID: "m5", MsgSeq: 5, MsgType: MsgText, CreateTime: base.Add(5 * time.Second), Text: "other-later"},
+		{AccountID: OtherAccountID, TalkerID: FriendTalkerID, MsgID: "m6", MsgSeq: 6, MsgType: MsgText, CreateTime: friendLast, Text: "other-system"},
+		{AccountID: OtherAccountID, TalkerID: GroupTalkerID, MsgID: "g1", MsgSeq: 1, MsgType: MsgText, CreateTime: base.Add(1 * time.Second), Text: "other-group"},
+	}
+	for _, m := range msgs {
 		if err := adb.PutMessage(ctx, m); err != nil {
 			return err
 		}
