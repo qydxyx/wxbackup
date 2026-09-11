@@ -25,8 +25,28 @@ data_dir() {
     return
   fi
   if [ -n "${TRIM_DATA_SHARE_PATHS:-}" ]; then
-    local first
-    first="$(printf '%s' "$TRIM_DATA_SHARE_PATHS" | tr ',;' '\n' | awk 'NF{print; exit}')"
+    # fnOS: colon-separated paths for config/resource data-share entries.
+    local raw p first data_p oldifs
+    raw="${TRIM_DATA_SHARE_PATHS//,/:}"
+    raw="${raw//;/:}"
+    first=""
+    data_p=""
+    oldifs="$IFS"
+    IFS=':'
+    # shellcheck disable=SC2086
+    set -- ${raw}
+    IFS="$oldifs"
+    for p in "$@"; do
+      [ -n "$p" ] || continue
+      [ -n "$first" ] || first="$p"
+      case "$p" in
+        */data) data_p="$p" ;;
+      esac
+    done
+    if [ -n "$data_p" ]; then
+      printf '%s' "$data_p"
+      return
+    fi
     if [ -n "$first" ]; then
       printf '%s' "$first"
       return

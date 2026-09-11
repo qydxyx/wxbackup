@@ -4,7 +4,7 @@
     "items": [
       {
         "type": "tips",
-        "helpText": "可选择保留备份数据，以便日后重新安装。"
+        "helpText": "默认可保留备份数据。选“删除全部”时，卸载脚本会清空应用目录以及 wxbackup/data 共享（wizard_delete_data=true，不可恢复）。"
       },
       {
         "type": "radio",

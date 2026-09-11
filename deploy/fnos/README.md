@@ -30,7 +30,18 @@ deploy/fnos/
 
 8011 and 24011 are above 1024, so the package user can bind them. `config/privilege` therefore uses `"run-as": "package"`, not root. Request root only if a future host policy blocks those binds. Keep both ports free of other apps and firewalls; otherwise LAN backup/restore fails while the viewer can still run.
 
-Data lives in the `wxbackup/data` share (`TRIM_DATA_SHARE_PATHS` / `/var/apps/wxbackup/share/data`), passed to the binary as `WXBACKUP_DATA`.
+Data lives in the `wxbackup/data` share (`TRIM_DATA_SHARE_PATHS`, colon-separated, or `/var/apps/wxbackup/share/data`), passed to the binary as `WXBACKUP_DATA`.
+
+## Uninstall data
+
+`wizard/uninstall` exposes `wizard_delete_data`:
+
+| Value | Effect |
+|-------|--------|
+| unset / `false` (default) | Keep backup data (`TRIM_PKGVAR`, home/etc, and the `wxbackup/data` share) |
+| `true` | `cmd/uninstall_callback` empties package dirs **and** the data-share paths |
+
+fnOS sets `wizard_delete_data` from the uninstall radio. To force the same hook outside the wizard, export `wizard_delete_data=true` (or `false`) before `cmd/uninstall_callback`. Default is keep.
 
 ## Build the Go binary
 

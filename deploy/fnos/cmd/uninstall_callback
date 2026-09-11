@@ -1,13 +1,61 @@
 #!/bin/bash
-# Called after uninstall. Only wipe data when the wizard asked to.
+# Called after uninstall.
+# Wizard hook: wizard_delete_data (wizard/uninstall).
+#   true  → wipe package dirs and the wxbackup/data share
+#   false / unset / anything else → keep data (default)
 set -eu
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-if [ "${wizard_delete_data:-false}" = "true" ]; then
-  for dir in "${TRIM_PKGVAR:-}" "${TRIM_PKGHOME:-}" "${TRIM_PKGETC:-}"; do
-    if [ -n "$dir" ] && [ -d "$dir" ]; then
-      find "$dir" -mindepth 1 -delete 2>/dev/null || true
-    fi
+APP_NAME="${TRIM_APPNAME:-wxbackup}"
+
+should_delete_data() {
+  case "${wizard_delete_data:-false}" in
+    true|TRUE|1|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Empty a directory tree but leave the mount/share root in place.
+wipe_contents() {
+  local dir="$1"
+  [ -n "$dir" ] || return 0
+  [ -d "$dir" ] || return 0
+  find "$dir" -mindepth 1 -delete 2>/dev/null || true
+}
+
+# fnOS injects TRIM_DATA_SHARE_PATHS as colon-separated absolute paths
+# matching config/resource data-share names (wxbackup, wxbackup/data).
+iter_share_paths() {
+  local raw="${TRIM_DATA_SHARE_PATHS:-}"
+  raw="${raw//,/:}"
+  raw="${raw//;/:}"
+  local oldifs="$IFS"
+  local p
+  IFS=':'
+  # shellcheck disable=SC2086
+  set -- ${raw}
+  IFS="$oldifs"
+  for p in "$@"; do
+    [ -n "$p" ] || continue
+    printf '%s\n' "$p"
   done
+}
+
+if should_delete_data; then
+  wipe_contents "${TRIM_PKGVAR:-}"
+  wipe_contents "${TRIM_PKGHOME:-}"
+  wipe_contents "${TRIM_PKGETC:-}"
+
+  # Longest path first so nested wxbackup/data is emptied before wxbackup.
+  while IFS= read -r share; do
+    wipe_contents "$share"
+  done <<EOF
+$(iter_share_paths | awk '{print length, $0}' | sort -nr | cut -d' ' -f2-)
+EOF
+
+  # Documented fallbacks when TRIM_DATA_SHARE_PATHS is empty or incomplete.
+  wipe_contents "/var/apps/${APP_NAME}/share/data"
+  wipe_contents "/var/apps/${APP_NAME}/share"
+  wipe_contents "/var/apps/${APP_NAME}/shares"
 fi
 exit 0
