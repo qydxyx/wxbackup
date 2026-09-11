@@ -77,7 +77,7 @@ func (a *AccountDB) PutMessage(ctx context.Context, m domain.Message) error {
 			text=excluded.text,
 			xml=excluded.xml,
 			extra=excluded.extra
-	`, m.TalkerID, m.MsgID, accountID, m.MsgSeq, m.MsgType, boolInt(m.IsSend), messageUnixMilli(m.CreateTime), m.Text, m.XML, extra)
+	`, m.TalkerID, m.MsgID, accountID, m.MsgSeq, m.MsgType, boolInt(m.IsSend), timeUnixMilli(m.CreateTime), m.Text, m.XML, extra)
 	return mapSQLError(err)
 }
 
@@ -113,7 +113,7 @@ func (a *AccountDB) ListMessages(ctx context.Context, talkerID string, before *M
 		LIMIT ?`
 	args := []any{talkerID, limit}
 	if before != nil {
-		ct := messageUnixMilli(before.CreateTime)
+		ct := timeUnixMilli(before.CreateTime)
 		q = messageSelect + `
 			WHERE talker_id = ?
 			  AND (
@@ -320,13 +320,6 @@ func boolInt(b bool) int {
 }
 
 func timeUnixMilli(t time.Time) int64 {
-	if t.IsZero() {
-		return 0
-	}
-	return t.UnixMilli()
-}
-
-func messageUnixMilli(t time.Time) int64 {
 	if t.IsZero() {
 		return 0
 	}
