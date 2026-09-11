@@ -9,11 +9,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wxbackup/wxbackup/internal/app/backup"
 	"github.com/wxbackup/wxbackup/internal/store/sqlite"
 )
 
 func TestHealth(t *testing.T) {
 	t.Parallel()
+<<<<<<< HEAD
 	srv := httptest.NewServer(testMux(t, "testdev"))
 	t.Cleanup(srv.Close)
 
@@ -44,6 +46,7 @@ func TestHealthMethodNotAllowed(t *testing.T) {
 	t.Parallel()
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	rec := httptest.NewRecorder()
+<<<<<<< HEAD
 	testMux(t, "testdev").ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status %d", rec.Code)
@@ -54,6 +57,7 @@ func TestViewerAccountsEmpty(t *testing.T) {
 	t.Parallel()
 	req := httptest.NewRequest(http.MethodGet, "/v1/accounts", nil)
 	rec := httptest.NewRecorder()
+<<<<<<< HEAD
 	testMux(t, "testdev").ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d", rec.Code)
@@ -167,5 +171,10 @@ func testMuxDist(t *testing.T, version, dist string) http.Handler {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return newMuxWithDist(version, store, dist)
+	svc, err := backup.New(backup.Options{Store: store, DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	return newMuxWithDist(version, store, svc, dist)
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wxbackup/wxbackup/internal/app/backup"
 	"github.com/wxbackup/wxbackup/internal/config"
 	httpapi "github.com/wxbackup/wxbackup/internal/http"
 	"github.com/wxbackup/wxbackup/internal/store/sqlite"
@@ -35,22 +36,30 @@ func run() error {
 		return err
 	}
 	defer store.Close()
+	svc, err := backup.New(backup.Options{Store: store, DataDir: cfg.DataDir})
+	if err != nil {
+		return err
+	}
+	defer svc.Close()
 	log.Printf("wxbackup %s listening on %s (data=%s)", Version, cfg.Addr(), cfg.DataDir)
-	return http.ListenAndServe(cfg.Addr(), newMux(Version, store))
+	return http.ListenAndServe(cfg.Addr(), newMux(Version, store, svc))
 }
 
-func newMux(version string, store *sqlite.Store) http.Handler {
+func newMux(version string, store *sqlite.Store, svc *backup.Service) http.Handler {
 	dist := lookupWebDist()
 	if dist != "" {
 		log.Printf("serving web UI from %s", dist)
 	}
-	return newMuxWithDist(version, store, dist)
+	return newMuxWithDist(version, store, svc, dist)
 }
 
-func newMuxWithDist(version string, store *sqlite.Store, dist string) http.Handler {
+func newMuxWithDist(version string, store *sqlite.Store, svc *backup.Service, dist string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler(version))
 	httpapi.New(store).Register(mux)
+	if svc != nil {
+		svc.Register(mux)
+	}
 	if dist != "" {
 		mux.Handle("/", spaHandler(dist))
 	}
@@ -62,7 +71,6 @@ func lookupWebDist() string {
 		if hasWebIndex(v) {
 			return v
 		}
-		// env override is exclusive; do not silently fall back
 		log.Printf("WXBACKUP_WEB=%s has no index.html; web=off", v)
 		return ""
 	}
@@ -101,7 +109,6 @@ func spaHandler(dist string) http.Handler {
 			return
 		}
 		p := path.Clean(r.URL.Path)
-		// talker ids can contain '.' so an extension check 404s history URLs
 		if isHashedAsset(p) {
 			f, err := root.Open(p)
 			if err != nil {
