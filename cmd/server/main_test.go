@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -61,12 +63,93 @@ func TestViewerAccountsEmpty(t *testing.T) {
 	}
 }
 
+func TestMissingWebDistAPIOnly(t *testing.T) {
+	t.Parallel()
+	h := testMux(t, "testdev")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("health %d", rec.Code)
+	}
+}
+
+func TestSPAServesIndexAndAssets(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><title>spa</title>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "app.js"), []byte("console.log(1)"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := testMuxDist(t, "testdev", dir)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "spa") {
+		t.Fatalf("index %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/chat/a1", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "spa") {
+		t.Fatalf("fallback %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/app.js", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != "console.log(1)" {
+		t.Fatalf("asset %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/missing.js", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing asset %d", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/accounts", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accounts %d", rec.Code)
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"accounts":[]}` {
+		t.Fatalf("body %s", rec.Body.String())
+	}
+}
+
+func TestHasWebIndex(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if hasWebIndex(dir) || hasWebIndex("") {
+		t.Fatal("expected missing index")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !hasWebIndex(dir) {
+		t.Fatal("expected index")
+	}
+}
+
 func testMux(t *testing.T, version string) http.Handler {
+	return testMuxDist(t, version, "")
+}
+
+func testMuxDist(t *testing.T, version, dist string) http.Handler {
 	t.Helper()
 	store, err := sqlite.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return newMux(version, store)
+	return newMuxWithDist(version, store, dist)
 }

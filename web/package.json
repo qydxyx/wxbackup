@@ -1,0 +1,25 @@
+{
+  "name": "wxbackup-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build --base / --outDir dist",
+    "build:port": "vite build --base / --outDir dist/port",
+    "build:cgi": "vite build --base /cgi/ThirdParty/WxBackup/index.cgi/ --outDir dist/cgi",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pinia": "^2.3.1",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "jsdom": "^26.0.0",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.8"
+  }
+}
