@@ -262,34 +262,3 @@ func firstNonEmpty(a, b string) string {
 	}
 	return b
 }
-
-func filterChunks(chunks []Chunk, req domain.BackupRequest) []Chunk {
-	if req.Mode == domain.BackupModeFull || len(req.Cursors) == 0 {
-		return chunks
-	}
-	byTalker := make(map[string]domain.BackupCursor, len(req.Cursors))
-	for _, c := range req.Cursors {
-		byTalker[c.TalkerID] = c
-	}
-	out := make([]Chunk, 0, len(chunks))
-	for _, ch := range chunks {
-		cur, ok := byTalker[ch.TalkerID]
-		if !ok {
-			out = append(out, ch)
-			continue
-		}
-		kept := ch
-		kept.Messages = nil
-		for _, m := range ch.Messages {
-			if messageAtOrBeforeCursor(cur, m) {
-				continue
-			}
-			kept.Messages = append(kept.Messages, m)
-		}
-		if len(kept.Messages) == 0 {
-			continue
-		}
-		out = append(out, kept)
-	}
-	return out
-}

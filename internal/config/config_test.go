@@ -51,11 +51,25 @@ func TestFromEnvInvalidPort(t *testing.T) {
 func TestFromEnvDefaults(t *testing.T) {
 	t.Setenv(EnvPort, "")
 	t.Setenv(EnvData, "")
+	t.Setenv(EnvSidecarDir, "")
 	cfg, err := FromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ListenPort != 20365 || cfg.DataDir != "data" {
+	if cfg.ListenPort != 20365 || cfg.DataDir != "data" || cfg.SidecarDir != "" {
+		t.Fatalf("%+v", cfg)
+	}
+}
+
+func TestFromEnvSidecarDir(t *testing.T) {
+	t.Setenv(EnvPort, "")
+	t.Setenv(EnvData, "data")
+	t.Setenv(EnvSidecarDir, "/mnt/wechat-backup")
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SidecarDir != "/mnt/wechat-backup" {
 		t.Fatalf("%+v", cfg)
 	}
 }

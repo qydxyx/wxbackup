@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wxbackup/wxbackup/internal/adapter/backupfmt"
+	"github.com/wxbackup/wxbackup/internal/adapter/devicesession"
 	"github.com/wxbackup/wxbackup/internal/domain"
 	"github.com/wxbackup/wxbackup/internal/store/sqlite"
 )
@@ -135,11 +136,10 @@ func TestIncrementalSkipsOldMessages(t *testing.T) {
 	if err != nil || conv.MsgCount != 2 {
 		t.Fatalf("conv %+v %v", conv, err)
 	}
-	fake.mu.Lock()
-	if len(fake.LastRequest.Cursors) != 1 || fake.LastRequest.Cursors[0].SegmentMeta == "" {
-		t.Fatalf("request cursors %+v", fake.LastRequest.Cursors)
+	req := fake.LastBackupRequest()
+	if len(req.Cursors) != 1 || req.Cursors[0].SegmentMeta == "" {
+		t.Fatalf("request cursors %+v", req.Cursors)
 	}
-	fake.mu.Unlock()
 }
 
 func TestResumeAfterFailedTransfer(t *testing.T) {
@@ -209,10 +209,8 @@ func TestResumeOmitsFinishedTalkers(t *testing.T) {
 	if done, err := s.Wait(ctx, job2.ID); err != nil || done.Status != domain.JobDone {
 		t.Fatalf("%+v %v", done, err)
 	}
-	fake.mu.Lock()
-	emitted := append([]string(nil), fake.Emitted...)
-	req := fake.LastRequest
-	fake.mu.Unlock()
+	emitted := fake.EmittedTalkers()
+	req := fake.LastBackupRequest()
 	if len(emitted) != 0 {
 		t.Fatalf("finished talkers re-emitted: %v req=%+v", emitted, req.Cursors)
 	}
@@ -302,9 +300,7 @@ func TestPartialOrganizeThenResume(t *testing.T) {
 	if err != nil || done2.Status != domain.JobDone {
 		t.Fatalf("%+v %v", done2, err)
 	}
-	fake.mu.Lock()
-	emitted := append([]string(nil), fake.Emitted...)
-	fake.mu.Unlock()
+	emitted := fake.EmittedTalkers()
 	if len(emitted) != 1 || emitted[0] != "wxid_other" {
 		t.Fatalf("resume emitted %v", emitted)
 	}
@@ -535,6 +531,66 @@ func TestConflictAndRecoverInterrupted(t *testing.T) {
 	got, err := s2.store.GetBackupJob(ctx, "stuck")
 	if err != nil || got.Status != domain.JobFailed || got.Error != "interrupted" {
 		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestSidecarPackageJob(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	acct := domain.Account{
+		ID: "a1", WxID: "wxid_fixture", Nickname: "Fixture",
+		LoginState: domain.LoginStateLoggedIn,
+	}
+	if err := store.PutAccount(ctx, acct); err != nil {
+		t.Fatal(err)
+	}
+	side := t.TempDir()
+	now := time.Date(2024, 8, 1, 0, 0, 0, 0, time.UTC)
+	if err := backupfmt.Write(side, backupfmt.Snapshot{
+		AccountID: acct.ID,
+		WxID:      acct.WxID,
+		Conversations: []domain.Conversation{{
+			AccountID: acct.ID, TalkerID: "wxid_friend", Kind: domain.ConversationFriend,
+			DisplayName: "Friend", LastMsgTime: now, MsgCount: 1,
+		}},
+		Messages: []domain.Message{{
+			AccountID: acct.ID, TalkerID: "wxid_friend", MsgID: "m-side", MsgSeq: 1,
+			MsgType: 1, CreateTime: now, Text: "from-sidecar",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sideSess := devicesession.NewSidecar(side)
+	sideSess.PollInterval = 15 * time.Millisecond
+	sideSess.StableFor = 20 * time.Millisecond
+	s, err := New(Options{Store: store, DataDir: dir, Sessions: func(context.Context, domain.Account) (domain.DeviceSession, error) {
+		return sideSess, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	job, err := s.Start(ctx, acct.ID, domain.BackupModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := s.Wait(ctx, job.ID)
+	if err != nil || done.Status != domain.JobDone {
+		t.Fatalf("%+v %v", done, err)
+	}
+	adb, err := s.store.OpenAccount(ctx, acct.WxID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := adb.ListMessages(ctx, "wxid_friend", nil, 10)
+	if err != nil || len(msgs) != 1 || msgs[0].Text != "from-sidecar" {
+		t.Fatalf("messages %+v %v", msgs, err)
 	}
 }
 

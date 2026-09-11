@@ -23,7 +23,8 @@ var (
 )
 
 // SessionResolver returns the NAS-side computer login for an account.
-// Adapters live in a later PR; tests inject a FakeSession.
+// Production wires devicesession.Sidecar when WXBACKUP_SIDECAR_DIR is set;
+// tests inject a FakeSession. Nil means Start returns ErrNoSession.
 type SessionResolver func(ctx context.Context, account domain.Account) (domain.DeviceSession, error)
 
 type Options struct {

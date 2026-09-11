@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wxbackup/wxbackup/internal/adapter/devicesession"
 	"github.com/wxbackup/wxbackup/internal/app/backup"
 	"github.com/wxbackup/wxbackup/internal/config"
 	httpapi "github.com/wxbackup/wxbackup/internal/http"
@@ -36,7 +37,11 @@ func run() error {
 		return err
 	}
 	defer store.Close()
-	svc, err := backup.New(backup.Options{Store: store, DataDir: cfg.DataDir})
+	svc, err := backup.New(backup.Options{
+		Store:    store,
+		DataDir:  cfg.DataDir,
+		Sessions: devicesession.Resolver(cfg.SidecarDir),
+	})
 	if err != nil {
 		return err
 	}

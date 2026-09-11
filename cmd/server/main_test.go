@@ -1,15 +1,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/wxbackup/wxbackup/internal/adapter/devicesession"
 	"github.com/wxbackup/wxbackup/internal/app/backup"
+	"github.com/wxbackup/wxbackup/internal/config"
+	"github.com/wxbackup/wxbackup/internal/domain"
 	"github.com/wxbackup/wxbackup/internal/store/sqlite"
 )
 
@@ -48,6 +53,25 @@ func TestHealthMethodNotAllowed(t *testing.T) {
 	testMux(t, "testdev").ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status %d", rec.Code)
+	}
+}
+
+func TestSessionResolverFromConfig(t *testing.T) {
+	t.Parallel()
+	if devicesession.Resolver(config.Config{}.SidecarDir) != nil {
+		t.Fatal("empty sidecar dir must leave session unconfigured")
+	}
+	dir := t.TempDir()
+	r := devicesession.Resolver(config.Config{SidecarDir: dir}.SidecarDir)
+	if r == nil {
+		t.Fatal("expected sidecar resolver")
+	}
+	sess, err := r(context.Background(), domain.Account{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := sess.(*devicesession.Sidecar); !ok {
+		t.Fatalf("got %T", sess)
 	}
 }
 

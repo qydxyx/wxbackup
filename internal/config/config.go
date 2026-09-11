@@ -12,6 +12,7 @@ import (
 const (
 	EnvPort        = "WXBACKUP_PORT"
 	EnvData        = "WXBACKUP_DATA"
+	EnvSidecarDir  = "WXBACKUP_SIDECAR_DIR"
 	DefaultDataDir = "data"
 )
 
@@ -20,6 +21,9 @@ const (
 type Config struct {
 	ListenPort int
 	DataDir    string
+	// SidecarDir is the official WeChat Backup folder to watch. Empty disables
+	// DeviceSession (backup APIs return 503 no_session).
+	SidecarDir string
 }
 
 func Default() Config {
@@ -43,6 +47,9 @@ func FromEnv() (Config, error) {
 	}
 	if v := strings.TrimSpace(os.Getenv(EnvData)); v != "" {
 		cfg.DataDir = v
+	}
+	if v := strings.TrimSpace(os.Getenv(EnvSidecarDir)); v != "" {
+		cfg.SidecarDir = v
 	}
 	if cfg.DataDir == "" {
 		return Config{}, fmt.Errorf("%s: data directory is required", EnvData)
