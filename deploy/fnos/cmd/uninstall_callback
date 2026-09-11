@@ -1,0 +1,13 @@
+#!/bin/bash
+# Called after uninstall. Only wipe data when the wizard asked to.
+set -eu
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+if [ "${wizard_delete_data:-false}" = "true" ]; then
+  for dir in "${TRIM_PKGVAR:-}" "${TRIM_PKGHOME:-}" "${TRIM_PKGETC:-}"; do
+    if [ -n "$dir" ] && [ -d "$dir" ]; then
+      find "$dir" -mindepth 1 -delete 2>/dev/null || true
+    fi
+  done
+fi
+exit 0

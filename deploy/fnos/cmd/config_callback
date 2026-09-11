@@ -1,0 +1,3 @@
+#!/bin/bash
+# Called after environment/config changes are applied.
+exit 0

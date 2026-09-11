@@ -1,0 +1,3 @@
+#!/bin/bash
+# Called before an upgrade is applied.
+exit 0

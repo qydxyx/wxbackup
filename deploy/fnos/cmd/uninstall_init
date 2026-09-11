@@ -1,0 +1,10 @@
+#!/bin/bash
+# Called before uninstall. Stop the service if cmd/main is still available.
+set -eu
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+MAIN="$(cd "$(dirname "$0")" && pwd)/main"
+if [ -x "$MAIN" ]; then
+  "$MAIN" stop || true
+fi
+exit 0

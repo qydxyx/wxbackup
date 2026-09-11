@@ -1,0 +1,55 @@
+#!/bin/bash
+# Post-install: prepare dirs, make binaries executable, warn if WeChat LAN ports
+# are taken. Does not unpack or vendor ffmpeg / Chromium.
+set -u
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+APP_NAME="${TRIM_APPNAME:-wxbackup}"
+APP_DEST="${TRIM_APPDEST:-/var/apps/${APP_NAME}/target}"
+PKG_VAR="${TRIM_PKGVAR:-/var/apps/${APP_NAME}/var}"
+LOG_FILE="${PKG_VAR}/${APP_NAME}.log"
+
+# WeChat official LAN ports (not configurable). Binding them does not require
+# root: both are >1024. Keep the service as run-as=package. Only consider root
+# if a future host policy blocks the package user from 8011/24011.
+WECHAT_DISCOVERY_PORT=8011
+WECHAT_TRANSFER_PORT=24011
+
+mkdir -p "$PKG_VAR/data" "$PKG_VAR/logs"
+chmod 0755 "$PKG_VAR" "$PKG_VAR/data" "$PKG_VAR/logs" 2>/dev/null || true
+
+if [ -f "${APP_DEST}/bin/wxbackup" ]; then
+  chmod 0755 "${APP_DEST}/bin/wxbackup" || true
+fi
+if [ -f "${APP_DEST}/ui/index.cgi" ]; then
+  chmod 0755 "${APP_DEST}/ui/index.cgi" || true
+fi
+
+port_in_use() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${port}$"
+    return $?
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${port}$"
+    return $?
+  fi
+  return 1
+}
+
+warn_port() {
+  local port="$1"
+  local role="$2"
+  if port_in_use "$port"; then
+    local msg="端口 ${port}（微信${role}）已被占用。请停用占用该端口的应用并放行防火墙，否则局域网备份/恢复无法工作。查看器仍可启动。"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - ${msg}" >>"$LOG_FILE"
+    echo "$msg" >&2
+  fi
+}
+
+warn_port "$WECHAT_DISCOVERY_PORT" "发现"
+warn_port "$WECHAT_TRANSFER_PORT" "传输"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - install_callback complete (no ffmpeg/chrome bundled)" >>"$LOG_FILE"
+exit 0

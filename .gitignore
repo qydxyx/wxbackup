@@ -20,3 +20,5 @@ data/
 *.db-shm
 work/wxbackup-rebuild/samples/*.fpk
 work/wxbackup-rebuild/samples/app.tgz
+deploy/fnos/app/bin/*
+!deploy/fnos/app/bin/.gitkeep
