@@ -8,6 +8,8 @@ import (
 	"os"
 
 	"github.com/wxbackup/wxbackup/internal/config"
+	httpapi "github.com/wxbackup/wxbackup/internal/http"
+	"github.com/wxbackup/wxbackup/internal/store/sqlite"
 )
 
 // Version is overridden at build time with -ldflags.
@@ -25,13 +27,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	store, err := sqlite.Open(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
 	log.Printf("wxbackup %s listening on %s (data=%s)", Version, cfg.Addr(), cfg.DataDir)
-	return http.ListenAndServe(cfg.Addr(), newMux(Version))
+	return http.ListenAndServe(cfg.Addr(), newMux(Version, store))
 }
 
-func newMux(version string) http.Handler {
+func newMux(version string, store *sqlite.Store) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler(version))
+	httpapi.New(store).Register(mux)
 	return mux
 }
 
