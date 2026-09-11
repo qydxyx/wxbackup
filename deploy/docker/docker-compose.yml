@@ -1,0 +1,26 @@
+name: wxbackup
+
+services:
+  wxbackup:
+    image: wxbackup:local
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      WXBACKUP_PORT: "20365"
+      WXBACKUP_DATA: /data
+      # Optional official WeChat Backup folder (directory watch, not a protocol bot).
+      # WXBACKUP_SIDECAR_DIR: /sidecar
+    volumes:
+      - ./data:/data
+      # - ./sidecar:/sidecar:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:20365/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
