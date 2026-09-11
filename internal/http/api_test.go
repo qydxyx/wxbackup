@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wxbackup/wxbackup/internal/adapter/media"
 	"github.com/wxbackup/wxbackup/internal/domain"
 	"github.com/wxbackup/wxbackup/internal/store/sqlite"
 	"github.com/wxbackup/wxbackup/testdata/fixtures"
@@ -598,6 +599,99 @@ func TestEmptyStoreAccounts(t *testing.T) {
 	if got := strings.TrimSpace(rec.Body.String()); got != `{"accounts":[]}` {
 		t.Fatalf("body %s", rec.Body.String())
 	}
+}
+
+func TestGetMediaTranscodeMP3(t *testing.T) {
+	t.Setenv(media.EnvFFmpeg, writeFFmpegStub(t))
+	store, dir := seededStore(t)
+	putVoice(t, store, dir, []byte("silk-bytes"))
+	h := handlerFor(t, store)
+	rec := do(t, h, http.MethodGet, "/v1/media/media_voice?account_id="+fixtures.AccountID+"&transcode=mp3")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.Bytes())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "audio/mpeg" {
+		t.Fatalf("content-type %q", ct)
+	}
+	if rec.Body.String() != "STUB-mp3-silk-bytes" {
+		t.Fatalf("body %q", rec.Body.String())
+	}
+}
+
+func TestGetMediaTranscodeRequiresVoice(t *testing.T) {
+	t.Setenv(media.EnvFFmpeg, writeFFmpegStub(t))
+	h := seededHandler(t)
+	rec := do(t, h, http.MethodGet, "/v1/media/"+fixtures.AvailableMediaID+"?account_id="+fixtures.AccountID+"&transcode=mp3")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.Bytes())
+	}
+}
+
+func TestGetMediaTranscodeMissingFFmpeg(t *testing.T) {
+	t.Setenv(media.EnvFFmpeg, filepath.Join(t.TempDir(), "no-ffmpeg"))
+	store, dir := seededStore(t)
+	putVoice(t, store, dir, []byte("silk"))
+	h := handlerFor(t, store)
+	rec := do(t, h, http.MethodGet, "/v1/media/media_voice?account_id="+fixtures.AccountID+"&transcode=mp3")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.Bytes())
+	}
+}
+
+func putVoice(t *testing.T, store *sqlite.Store, dataDir string, body []byte) string {
+	t.Helper()
+	path := filepath.Join(dataDir, "accounts", fixtures.WxID, "media", "voice.bin")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	adb, err := store.OpenAccount(context.Background(), fixtures.WxID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adb.PutMedia(context.Background(), domain.MediaObject{
+		AccountID: fixtures.AccountID, MediaID: "media_voice", Kind: domain.MediaKindVoice,
+		Path: path, Size: int64(len(body)), Available: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeFFmpegStub(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "ffmpeg")
+	script := `#!/bin/sh
+input=""
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "-i" ]; then
+    input=$arg
+  fi
+  prev=$arg
+done
+output=$prev
+fmt=""
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "-f" ]; then
+    fmt=$arg
+  fi
+  prev=$arg
+done
+if [ -z "$input" ] || [ ! -f "$input" ]; then
+  echo "ffmpeg-stub: input missing" >&2
+  exit 1
+fi
+printf 'STUB-%s-' "$fmt" > "$output"
+cat "$input" >> "$output"
+`
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 func seededStore(t *testing.T) (*sqlite.Store, string) {

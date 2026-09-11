@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wxbackup/wxbackup/internal/adapter/media"
 	"github.com/wxbackup/wxbackup/internal/app/stats"
 	"github.com/wxbackup/wxbackup/internal/domain"
 	"github.com/wxbackup/wxbackup/internal/store/fts"
@@ -34,6 +36,7 @@ var (
 	errBadLimit          = &domain.Error{Code: codeInvalidRequest, Message: "invalid limit"}
 	errBadMsgType        = &domain.Error{Code: codeInvalidRequest, Message: "invalid msg_type"}
 	errBadTimeRange      = &domain.Error{Code: codeInvalidRequest, Message: "invalid from or to"}
+	errBadTranscode      = &domain.Error{Code: codeInvalidRequest, Message: "transcode must be mp3 for voice"}
 )
 
 type Server struct {
@@ -222,6 +225,11 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, domain.ErrMediaNeverOpened)
 		return
 	}
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("transcode")))
+	if format != "" {
+		s.serveTranscoded(w, r, m, format)
+		return
+	}
 	f, err := os.Open(m.Path)
 	if err != nil {
 		writeError(w, http.StatusNotFound, domain.ErrMediaNeverOpened)
@@ -235,6 +243,20 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", mediaContentType(m.Kind))
 	http.ServeContent(w, r, mediaID, st.ModTime(), f)
+}
+
+func (s *Server) serveTranscoded(w http.ResponseWriter, r *http.Request, m domain.MediaObject, format string) {
+	if format != media.FormatMP3 || m.Kind != domain.MediaKindVoice {
+		writeError(w, http.StatusBadRequest, errBadTranscode)
+		return
+	}
+	out, err := media.Transcode(r.Context(), m.Path, media.FormatMP3)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "audio/mpeg")
+	http.ServeContent(w, r, m.MediaID+".mp3", time.Now(), bytes.NewReader(out))
 }
 
 func (s *Server) accountDB(r *http.Request) (*sqlite.AccountDB, domain.Account, error) {
@@ -278,8 +300,13 @@ func writeAPIError(w http.ResponseWriter, err error) {
 		return
 	}
 	if errors.Is(err, errAccountIDRequired) || errors.Is(err, errBadCursor) || errors.Is(err, errBadLimit) ||
-		errors.Is(err, errBadMsgType) || errors.Is(err, errBadTimeRange) {
+		errors.Is(err, errBadMsgType) || errors.Is(err, errBadTimeRange) ||
+		errors.Is(err, errBadTranscode) || errors.Is(err, media.ErrUnsupportedFormat) {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if errors.Is(err, media.ErrFFmpegMissing) {
+		writeError(w, http.StatusServiceUnavailable, err)
 		return
 	}
 	if errors.Is(err, errAccountNotFound) || errors.Is(err, errConversationGone) || errors.Is(err, sqlite.ErrNotFound) {
