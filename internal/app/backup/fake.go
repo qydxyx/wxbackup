@@ -37,6 +37,13 @@ type FakeSession struct {
 	FailAfter int
 	// Hold, if set, blocks completion until Hold is done or the job is cancelled.
 	Hold context.Context
+	// Holding is closed once the stream is blocked on Hold (test sync).
+	Holding chan struct{}
+
+	mu          sync.Mutex
+	holdOnce    sync.Once
+	LastRequest domain.BackupRequest
+	Emitted     []string
 }
 
 func (f *FakeSession) LoginQR(context.Context) (domain.LoginSession, error) {
@@ -47,14 +54,22 @@ func (f *FakeSession) WaitLoggedIn(context.Context) (domain.Account, error) {
 	return f.Account, nil
 }
 
-func (f *FakeSession) StartBackup(ctx context.Context, _ domain.BackupRequest) (domain.BackupStream, error) {
+func (f *FakeSession) StartBackup(ctx context.Context, req domain.BackupRequest) (domain.BackupStream, error) {
 	if f.StartErr != nil {
 		return nil, f.StartErr
 	}
+	f.mu.Lock()
+	f.LastRequest = req
+	chunks := filterChunks(append([]Chunk(nil), f.Chunks...), req)
+	f.Emitted = f.Emitted[:0]
+	for _, c := range chunks {
+		f.Emitted = append(f.Emitted, c.TalkerID)
+	}
+	f.mu.Unlock()
 	ctx, cancel := context.WithCancel(ctx)
 	st := &fakeStream{
 		progress: make(chan domain.BackupProgress, 8),
-		chunks:   make(chan Chunk, len(f.Chunks)+1),
+		chunks:   make(chan Chunk, len(chunks)+1),
 		stop:     cancel,
 		done:     make(chan struct{}),
 	}
@@ -64,7 +79,7 @@ func (f *FakeSession) StartBackup(ctx context.Context, _ domain.BackupRequest) (
 		defer close(st.chunks)
 		defer cancel()
 		var bytes int64
-		for i, c := range f.Chunks {
+		for i, c := range chunks {
 			if f.FailAfter > 0 && i >= f.FailAfter {
 				st.setErr(f.WaitErr)
 				if st.err == nil {
@@ -90,6 +105,9 @@ func (f *FakeSession) StartBackup(ctx context.Context, _ domain.BackupRequest) (
 			}
 		}
 		if f.Hold != nil {
+			if f.Holding != nil {
+				f.holdOnce.Do(func() { close(f.Holding) })
+			}
 			select {
 			case <-ctx.Done():
 				st.setErr(domain.ErrBackupCancelled)

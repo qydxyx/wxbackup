@@ -44,6 +44,10 @@ type Service struct {
 
 	mu   sync.Mutex
 	jobs map[string]*runtimeJob
+
+	// test-only: block organize until ctx is cancelled, or fail after a talker.
+	organizeHold func(ctx context.Context) error
+	afterTalker  func(talker string) error
 }
 
 type runtimeJob struct {
@@ -215,7 +219,11 @@ func (s *Service) Cancel(ctx context.Context, accountID, jobID string) (domain.B
 	case <-ctx.Done():
 		return rt.snapshot(), ctx.Err()
 	case <-rt.done:
-		return rt.snapshot(), nil
+		got := rt.snapshot()
+		if got.Status != domain.JobCancelled {
+			return got, domain.ErrBackupCancelled
+		}
+		return got, nil
 	}
 }
 
@@ -253,12 +261,19 @@ func (s *Service) Subscribe(jobID string) (<-chan domain.BackupJob, func()) {
 		close(ch)
 		return ch, func() {}
 	}
-	ch := make(chan domain.BackupJob, 16)
 	rt.mu.Lock()
-	rt.subscribers = append(rt.subscribers, ch)
 	cur := rt.job
-	rt.mu.Unlock()
+	if cur.Status.Terminal() {
+		rt.mu.Unlock()
+		ch := make(chan domain.BackupJob, 1)
+		ch <- cur
+		close(ch)
+		return ch, func() {}
+	}
+	ch := make(chan domain.BackupJob, 8)
 	ch <- cur
+	rt.subscribers = append(rt.subscribers, ch)
+	rt.mu.Unlock()
 	unsub := func() {
 		rt.mu.Lock()
 		defer rt.mu.Unlock()
@@ -287,15 +302,19 @@ func (s *Service) run(ctx context.Context, rt *runtimeJob, acct domain.Account) 
 	}
 
 	req := domain.BackupRequest{AccountID: acct.ID, Mode: rt.snapshot().Mode}
-	if req.Mode == domain.BackupModeIncremental || req.Mode == domain.BackupModeResume {
-		adb, err := s.store.OpenAccount(ctx, acct.WxID)
-		if err == nil {
-			if cursors, err := adb.ListCursors(ctx); err == nil {
-				for _, c := range cursors {
-					req.TalkerIDs = append(req.TalkerIDs, c.TalkerID)
-				}
-			}
-		}
+	adb, err := s.store.OpenAccount(ctx, acct.WxID)
+	if err != nil {
+		s.fail(rt, err)
+		return
+	}
+	cursors, err := adb.ListCursors(ctx)
+	if err != nil {
+		s.fail(rt, err)
+		return
+	}
+	req.Cursors = cursors
+	for _, c := range cursors {
+		req.TalkerIDs = append(req.TalkerIDs, c.TalkerID)
 	}
 
 	stream, err := sess.StartBackup(ctx, req)
@@ -332,11 +351,13 @@ func (s *Service) transfer(ctx context.Context, rt *runtimeJob, acct domain.Acco
 	snap := backupfmt.Snapshot{AccountID: acct.ID, WxID: acct.WxID, MediaBlobs: map[string][]byte{}}
 
 	var wg sync.WaitGroup
-	if p := stream.Progress(); p != nil {
+	progress := stream.Progress()
+	useProgress := progress != nil
+	if useProgress {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for ev := range p {
+			for ev := range progress {
 				rt.mu.Lock()
 				if rt.job.Status == domain.JobTransfer {
 					if ev.BytesIn > rt.job.BytesIn {
@@ -364,6 +385,9 @@ func (s *Service) transfer(ctx context.Context, rt *runtimeJob, acct domain.Acco
 				return snap, domain.ErrBackupCancelled
 			}
 			mergeChunk(&snap, chunk)
+			if useProgress {
+				continue
+			}
 			rt.mu.Lock()
 			rt.job.SessionsDone++
 			if chunk.Bytes > 0 {
@@ -388,6 +412,17 @@ func (s *Service) transfer(ctx context.Context, rt *runtimeJob, acct domain.Acco
 }
 
 func (s *Service) organize(ctx context.Context, rt *runtimeJob, acct domain.Account, snap backupfmt.Snapshot) error {
+	if err := ctx.Err(); err != nil {
+		return domain.ErrBackupCancelled
+	}
+	if s.organizeHold != nil {
+		if err := s.organizeHold(ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return domain.ErrBackupCancelled
+			}
+			return err
+		}
+	}
 	pkgDir, err := s.materializePackage(acct, snap)
 	if err != nil {
 		return err
@@ -406,7 +441,7 @@ func (s *Service) organize(ctx context.Context, rt *runtimeJob, acct domain.Acco
 	if err != nil {
 		return err
 	}
-	if err := ingestSnapshot(ctx, adb, acct, s.mediaDir(acct), rt.snapshot().Mode, snap); err != nil {
+	if err := ingestSnapshot(ctx, adb, acct, s.mediaDir(acct), rt.snapshot().Mode, snap, ingestHooks{afterTalker: s.afterTalker}); err != nil {
 		return err
 	}
 	n := countTalkers(snap)
@@ -507,13 +542,37 @@ func (s *Service) persist(rt *runtimeJob, job domain.BackupJob) error {
 }
 
 func (s *Service) emit(rt *runtimeJob, job domain.BackupJob) {
+	terminal := job.Status.Terminal()
 	rt.mu.Lock()
 	subs := append([]chan domain.BackupJob(nil), rt.subscribers...)
+	if terminal {
+		rt.subscribers = nil
+	}
 	rt.mu.Unlock()
 	for _, ch := range subs {
+		if terminal {
+			forceSend(ch, job)
+			close(ch)
+			continue
+		}
 		select {
 		case ch <- job:
 		default:
+		}
+	}
+}
+
+func forceSend(ch chan domain.BackupJob, job domain.BackupJob) {
+	for {
+		select {
+		case ch <- job:
+			return
+		default:
+			select {
+			case <-ch:
+			default:
+				return
+			}
 		}
 	}
 }

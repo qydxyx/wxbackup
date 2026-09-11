@@ -21,6 +21,7 @@ func TestHTTPStartGetCancel(t *testing.T) {
 	hold, stop := context.WithCancel(context.Background())
 	defer stop()
 	fake.Hold = hold
+	fake.Holding = make(chan struct{})
 	fake.Chunks = []Chunk{friendChunk(acct.ID, "wxid_friend", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), "hi", 2)}
 
 	srv := httptest.NewServer(s.Handler())
@@ -42,7 +43,11 @@ func TestHTTPStartGetCancel(t *testing.T) {
 		t.Fatalf("%+v", job)
 	}
 
-	waitStatus(t, s, acct.ID, job.ID, domain.JobTransfer)
+	select {
+	case <-fake.Holding:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for transfer hold")
+	}
 
 	get, err := http.Get(srv.URL + "/v1/accounts/" + acct.ID + "/backup/" + job.ID)
 	if err != nil {
@@ -171,5 +176,38 @@ func TestHTTPErrors(t *testing.T) {
 	defer noSess.Body.Close()
 	if noSess.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("no session %d", noSess.StatusCode)
+	}
+}
+
+func TestHTTPCancelAfterDoneConflict(t *testing.T) {
+	t.Parallel()
+	s, fake, acct := setup(t, nil)
+	fake.Chunks = []Chunk{friendChunk(acct.ID, "wxid_friend", time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC), "done", 1)}
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	res, err := http.Post(srv.URL+"/v1/accounts/"+acct.ID+"/backup", "application/json", strings.NewReader(`{"mode":"full"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var job domain.BackupJob
+	if err := json.NewDecoder(res.Body).Decode(&job); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Wait(context.Background(), job.ID); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodDelete, srv.URL+"/v1/accounts/"+acct.ID+"/backup/"+job.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	del, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer del.Body.Close()
+	if del.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(del.Body)
+		t.Fatalf("delete %d %s", del.StatusCode, body)
 	}
 }

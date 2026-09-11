@@ -120,10 +120,48 @@ func (s *Store) OpenAccount(ctx context.Context, wxid string) (*AccountDB, error
 	return a, nil
 }
 
+type querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 type AccountDB struct {
 	wxid      string
 	accountID string
 	db        *sql.DB
+	tx        *sql.Tx
+}
+
+func (a *AccountDB) q() querier {
+	if a != nil && a.tx != nil {
+		return a.tx
+	}
+	return a.db
+}
+
+// InTx runs fn in a single account-db transaction. Nested calls reuse the tx.
+func (a *AccountDB) InTx(ctx context.Context, fn func(*AccountDB) error) error {
+	if a.tx != nil {
+		return fn(a)
+	}
+	tx, err := a.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	scoped := *a
+	scoped.tx = tx
+	if err := fn(&scoped); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (a *AccountDB) CountMessages(ctx context.Context, talkerID string) (int64, error) {
+	var n int64
+	err := a.q().QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE talker_id = ?`, talkerID).Scan(&n)
+	return n, err
 }
 
 func (a *AccountDB) WxID() string      { return a.wxid }

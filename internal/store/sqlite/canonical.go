@@ -20,7 +20,7 @@ func (a *AccountDB) PutConversation(ctx context.Context, c domain.Conversation) 
 	if err != nil {
 		return err
 	}
-	_, err = a.db.ExecContext(ctx, `
+	_, err = a.q().ExecContext(ctx, `
 		INSERT INTO conversations (talker_id, account_id, kind, display_name, avatar, last_msg_time, msg_count)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(talker_id) DO UPDATE SET
@@ -34,11 +34,11 @@ func (a *AccountDB) PutConversation(ctx context.Context, c domain.Conversation) 
 }
 
 func (a *AccountDB) GetConversation(ctx context.Context, talkerID string) (domain.Conversation, error) {
-	return scanConversation(a.db.QueryRowContext(ctx, conversationSelect+` WHERE talker_id = ?`, talkerID))
+	return scanConversation(a.q().QueryRowContext(ctx, conversationSelect+` WHERE talker_id = ?`, talkerID))
 }
 
 func (a *AccountDB) ListConversations(ctx context.Context) ([]domain.Conversation, error) {
-	rows, err := a.db.QueryContext(ctx, conversationSelect+` ORDER BY last_msg_time DESC, talker_id`)
+	rows, err := a.q().QueryContext(ctx, conversationSelect+` ORDER BY last_msg_time DESC, talker_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (a *AccountDB) PutMessage(ctx context.Context, m domain.Message) error {
 	if err != nil {
 		return err
 	}
-	_, err = a.db.ExecContext(ctx, `
+	_, err = a.q().ExecContext(ctx, `
 		INSERT INTO messages (talker_id, msg_id, account_id, msg_seq, msg_type, is_send, create_time, text, xml, extra)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(talker_id, msg_id) DO UPDATE SET
@@ -82,7 +82,7 @@ func (a *AccountDB) PutMessage(ctx context.Context, m domain.Message) error {
 }
 
 func (a *AccountDB) GetMessage(ctx context.Context, talkerID, msgID string) (domain.Message, error) {
-	return scanMessage(a.db.QueryRowContext(ctx, messageSelect+` WHERE talker_id = ? AND msg_id = ?`, talkerID, msgID))
+	return scanMessage(a.q().QueryRowContext(ctx, messageSelect+` WHERE talker_id = ? AND msg_id = ?`, talkerID, msgID))
 }
 
 // MessageCursor is the keyset bound for ListMessages (create_time, msg_seq, msg_id DESC).
@@ -125,7 +125,7 @@ func (a *AccountDB) ListMessages(ctx context.Context, talkerID string, before *M
 			LIMIT ?`
 		args = []any{talkerID, ct, ct, before.MsgSeq, ct, before.MsgSeq, before.MsgID, limit}
 	}
-	rows, err := a.db.QueryContext(ctx, q, args...)
+	rows, err := a.q().QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func (a *AccountDB) PutMedia(ctx context.Context, m domain.MediaObject) error {
 	if err != nil {
 		return err
 	}
-	_, err = a.db.ExecContext(ctx, `
+	_, err = a.q().ExecContext(ctx, `
 		INSERT INTO media (media_id, account_id, kind, sha256, path, size, available)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(media_id) DO UPDATE SET
@@ -166,11 +166,11 @@ func (a *AccountDB) PutMedia(ctx context.Context, m domain.MediaObject) error {
 }
 
 func (a *AccountDB) GetMedia(ctx context.Context, mediaID string) (domain.MediaObject, error) {
-	return scanMedia(a.db.QueryRowContext(ctx, mediaSelect+` WHERE media_id = ?`, mediaID))
+	return scanMedia(a.q().QueryRowContext(ctx, mediaSelect+` WHERE media_id = ?`, mediaID))
 }
 
 func (a *AccountDB) ListMedia(ctx context.Context) ([]domain.MediaObject, error) {
-	rows, err := a.db.QueryContext(ctx, mediaSelect+` ORDER BY media_id`)
+	rows, err := a.q().QueryContext(ctx, mediaSelect+` ORDER BY media_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +194,7 @@ func (a *AccountDB) PutCursor(ctx context.Context, c domain.BackupCursor) error 
 	if err != nil {
 		return err
 	}
-	_, err = a.db.ExecContext(ctx, `
+	_, err = a.q().ExecContext(ctx, `
 		INSERT INTO backup_cursors (talker_id, account_id, last_end_time, segment_meta, received, total)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(talker_id) DO UPDATE SET
@@ -207,11 +207,11 @@ func (a *AccountDB) PutCursor(ctx context.Context, c domain.BackupCursor) error 
 }
 
 func (a *AccountDB) GetCursor(ctx context.Context, talkerID string) (domain.BackupCursor, error) {
-	return scanCursor(a.db.QueryRowContext(ctx, cursorSelect+` WHERE talker_id = ?`, talkerID))
+	return scanCursor(a.q().QueryRowContext(ctx, cursorSelect+` WHERE talker_id = ?`, talkerID))
 }
 
 func (a *AccountDB) ListCursors(ctx context.Context) ([]domain.BackupCursor, error) {
-	rows, err := a.db.QueryContext(ctx, cursorSelect+` ORDER BY talker_id`)
+	rows, err := a.q().QueryContext(ctx, cursorSelect+` ORDER BY talker_id`)
 	if err != nil {
 		return nil, err
 	}

@@ -22,9 +22,10 @@ type LoginSession struct {
 }
 
 type BackupRequest struct {
-	AccountID string     `json:"account_id"`
-	Mode      BackupMode `json:"mode"`
-	TalkerIDs []string   `json:"talker_ids,omitempty"`
+	AccountID string         `json:"account_id"`
+	Mode      BackupMode     `json:"mode"`
+	TalkerIDs []string       `json:"talker_ids,omitempty"`
+	Cursors   []BackupCursor `json:"cursors,omitempty"`
 }
 
 type RestoreRequest struct {

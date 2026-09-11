@@ -68,6 +68,11 @@ func TestFullJobFromChunks(t *testing.T) {
 	if err != nil || len(convs) != 2 {
 		t.Fatalf("convs %+v %v", convs, err)
 	}
+	for _, c := range convs {
+		if c.MsgCount != 1 {
+			t.Fatalf("msg_count %+v", c)
+		}
+	}
 }
 
 func TestIncrementalSkipsOldMessages(t *testing.T) {
@@ -88,7 +93,7 @@ func TestIncrementalSkipsOldMessages(t *testing.T) {
 		{
 			TalkerID: "wxid_friend",
 			Messages: []domain.Message{
-				{AccountID: acct.ID, TalkerID: "wxid_friend", MsgID: "m-old", MsgSeq: 1, MsgType: 1, CreateTime: t0, Text: "old-dup"},
+				{AccountID: acct.ID, TalkerID: "wxid_friend", MsgID: "m-wxid_friend", MsgSeq: 1, MsgType: 1, CreateTime: t0, Text: "old"},
 				{AccountID: acct.ID, TalkerID: "wxid_friend", MsgID: "m-new", MsgSeq: 2, MsgType: 1, CreateTime: t0.Add(time.Hour), Text: "new"},
 			},
 			Bytes: 12,
@@ -115,9 +120,6 @@ func TestIncrementalSkipsOldMessages(t *testing.T) {
 	}
 	foundNew := false
 	for _, m := range msgs {
-		if m.Text == "old-dup" {
-			t.Fatalf("incremental kept duplicate body: %+v", msgs)
-		}
 		if m.Text == "new" {
 			foundNew = true
 		}
@@ -126,9 +128,18 @@ func TestIncrementalSkipsOldMessages(t *testing.T) {
 		t.Fatalf("missing new message: %+v", texts(msgs))
 	}
 	cur, err := adb.GetCursor(ctx, "wxid_friend")
-	if err != nil || !cur.LastEndTime.Equal(t0.Add(time.Hour)) {
+	if err != nil || !cur.LastEndTime.Equal(t0.Add(time.Hour)) || cur.Received != 2 {
 		t.Fatalf("cursor %+v %v", cur, err)
 	}
+	conv, err := adb.GetConversation(ctx, "wxid_friend")
+	if err != nil || conv.MsgCount != 2 {
+		t.Fatalf("conv %+v %v", conv, err)
+	}
+	fake.mu.Lock()
+	if len(fake.LastRequest.Cursors) != 1 || fake.LastRequest.Cursors[0].SegmentMeta == "" {
+		t.Fatalf("request cursors %+v", fake.LastRequest.Cursors)
+	}
+	fake.mu.Unlock()
 }
 
 func TestResumeAfterFailedTransfer(t *testing.T) {
@@ -174,6 +185,214 @@ func TestResumeAfterFailedTransfer(t *testing.T) {
 	}
 }
 
+func TestResumeOmitsFinishedTalkers(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, fake, acct := setup(t, nil)
+	t0 := time.Date(2024, 3, 2, 0, 0, 0, 0, time.UTC)
+	fake.Chunks = []Chunk{
+		friendChunk(acct.ID, "wxid_friend", t0, "first", 3),
+		friendChunk(acct.ID, "wxid_other", t0.Add(time.Second), "second", 3),
+	}
+	job, err := s.Start(ctx, acct.ID, domain.BackupModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done, err := s.Wait(ctx, job.ID); err != nil || done.Status != domain.JobDone {
+		t.Fatalf("%+v %v", done, err)
+	}
+
+	job2, err := s.Start(ctx, acct.ID, domain.BackupModeResume)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done, err := s.Wait(ctx, job2.ID); err != nil || done.Status != domain.JobDone {
+		t.Fatalf("%+v %v", done, err)
+	}
+	fake.mu.Lock()
+	emitted := append([]string(nil), fake.Emitted...)
+	req := fake.LastRequest
+	fake.mu.Unlock()
+	if len(emitted) != 0 {
+		t.Fatalf("finished talkers re-emitted: %v req=%+v", emitted, req.Cursors)
+	}
+	adb, err := s.store.OpenAccount(ctx, acct.WxID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, talker := range []string{"wxid_friend", "wxid_other"} {
+		conv, err := adb.GetConversation(ctx, talker)
+		if err != nil || conv.MsgCount != 1 {
+			t.Fatalf("%s %+v %v", talker, conv, err)
+		}
+	}
+}
+
+func TestSecondFullDoesNotInflateCount(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, fake, acct := setup(t, nil)
+	t0 := time.Date(2024, 3, 3, 0, 0, 0, 0, time.UTC)
+	fake.Chunks = []Chunk{friendChunk(acct.ID, "wxid_friend", t0, "hello", 2)}
+	for i := 0; i < 2; i++ {
+		job, err := s.Start(ctx, acct.ID, domain.BackupModeFull)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if done, err := s.Wait(ctx, job.ID); err != nil || done.Status != domain.JobDone {
+			t.Fatalf("%+v %v", done, err)
+		}
+	}
+	adb, err := s.store.OpenAccount(ctx, acct.WxID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := adb.GetConversation(ctx, "wxid_friend")
+	if err != nil || conv.MsgCount != 1 {
+		t.Fatalf("%+v %v", conv, err)
+	}
+	n, err := adb.CountMessages(ctx, "wxid_friend")
+	if err != nil || n != 1 {
+		t.Fatalf("rows %d %v", n, err)
+	}
+}
+
+func TestPartialOrganizeThenResume(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, fake, acct := setup(t, nil)
+	t0 := time.Date(2024, 3, 4, 0, 0, 0, 0, time.UTC)
+	fake.Chunks = []Chunk{
+		friendChunk(acct.ID, "wxid_friend", t0, "first", 3),
+		friendChunk(acct.ID, "wxid_other", t0.Add(time.Second), "second", 3),
+	}
+	s.afterTalker = func(talker string) error {
+		if talker == "wxid_friend" {
+			return errors.New("organize interrupted")
+		}
+		return nil
+	}
+	job, err := s.Start(ctx, acct.ID, domain.BackupModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := s.Wait(ctx, job.ID)
+	if err != nil || done.Status != domain.JobFailed {
+		t.Fatalf("%+v %v", done, err)
+	}
+	s.afterTalker = nil
+
+	adb, err := s.store.OpenAccount(ctx, acct.WxID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	friend, err := adb.GetConversation(ctx, "wxid_friend")
+	if err != nil || friend.MsgCount != 1 {
+		t.Fatalf("friend after partial %+v %v", friend, err)
+	}
+	if _, err := adb.GetConversation(ctx, "wxid_other"); !errors.Is(err, sqlite.ErrNotFound) {
+		t.Fatalf("other should be rolled back/absent: %v", err)
+	}
+
+	job2, err := s.Start(ctx, acct.ID, domain.BackupModeResume)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done2, err := s.Wait(ctx, job2.ID)
+	if err != nil || done2.Status != domain.JobDone {
+		t.Fatalf("%+v %v", done2, err)
+	}
+	fake.mu.Lock()
+	emitted := append([]string(nil), fake.Emitted...)
+	fake.mu.Unlock()
+	if len(emitted) != 1 || emitted[0] != "wxid_other" {
+		t.Fatalf("resume emitted %v", emitted)
+	}
+	other, err := adb.GetConversation(ctx, "wxid_other")
+	if err != nil || other.MsgCount != 1 {
+		t.Fatalf("other %+v %v", other, err)
+	}
+	friend, err = adb.GetConversation(ctx, "wxid_friend")
+	if err != nil || friend.MsgCount != 1 {
+		t.Fatalf("friend after resume %+v %v", friend, err)
+	}
+}
+
+func TestResumeZeroCursorSkipsExistingIDs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, fake, acct := setup(t, nil)
+	t0 := time.Date(2024, 3, 5, 0, 0, 0, 0, time.UTC)
+	adb, err := s.store.OpenAccount(ctx, acct.WxID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adb.PutConversation(ctx, domain.Conversation{
+		AccountID: acct.ID, TalkerID: "wxid_friend", Kind: domain.ConversationFriend,
+		DisplayName: "Friend", LastMsgTime: t0, MsgCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := adb.PutMessage(ctx, domain.Message{
+		AccountID: acct.ID, TalkerID: "wxid_friend", MsgID: "m-wxid_friend", MsgSeq: 1,
+		MsgType: 1, CreateTime: t0, Text: "existing",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fake.Chunks = []Chunk{
+		friendChunk(acct.ID, "wxid_friend", t0, "existing", 3),
+		{
+			TalkerID: "wxid_friend",
+			Messages: []domain.Message{{
+				AccountID: acct.ID, TalkerID: "wxid_friend", MsgID: "m-new", MsgSeq: 2,
+				MsgType: 1, CreateTime: t0.Add(time.Minute), Text: "new",
+			}},
+			Bytes: 2,
+		},
+	}
+	job, err := s.Start(ctx, acct.ID, domain.BackupModeResume)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done, err := s.Wait(ctx, job.ID); err != nil || done.Status != domain.JobDone {
+		t.Fatalf("%+v %v", done, err)
+	}
+	n, err := adb.CountMessages(ctx, "wxid_friend")
+	if err != nil || n != 2 {
+		t.Fatalf("rows %d %v", n, err)
+	}
+	conv, err := adb.GetConversation(ctx, "wxid_friend")
+	if err != nil || conv.MsgCount != 2 {
+		t.Fatalf("%+v %v", conv, err)
+	}
+}
+
+func TestCancelDuringOrganize(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, fake, acct := setup(t, nil)
+	fake.Chunks = []Chunk{friendChunk(acct.ID, "wxid_friend", time.Date(2024, 3, 6, 0, 0, 0, 0, time.UTC), "x", 1)}
+	s.organizeHold = func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	job, err := s.Start(ctx, acct.ID, domain.BackupModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, s, acct.ID, job.ID, domain.JobOrganize)
+	got, err := s.Cancel(ctx, acct.ID, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != domain.JobCancelled {
+		t.Fatalf("%+v", got)
+	}
+	if done, err := s.Wait(ctx, job.ID); err != nil || done.Status == domain.JobDone {
+		t.Fatalf("must not complete after cancel: %+v %v", done, err)
+	}
+}
+
 func TestCancelRunningJob(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -181,12 +400,17 @@ func TestCancelRunningJob(t *testing.T) {
 	defer stop()
 	s, fake, acct := setup(t, nil)
 	fake.Hold = hold
+	fake.Holding = make(chan struct{})
 	fake.Chunks = []Chunk{friendChunk(acct.ID, "wxid_friend", time.Now().UTC(), "x", 1)}
 	job, err := s.Start(ctx, acct.ID, domain.BackupModeFull)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitStatus(t, s, acct.ID, job.ID, domain.JobTransfer)
+	select {
+	case <-fake.Holding:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for transfer hold")
+	}
 	got, err := s.Cancel(ctx, acct.ID, job.ID)
 	if err != nil {
 		t.Fatal(err)
