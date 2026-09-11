@@ -594,6 +594,146 @@ func TestSidecarPackageJob(t *testing.T) {
 	}
 }
 
+func TestSidecarIncrementalTwoTalkers(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	acct := domain.Account{
+		ID: "a1", WxID: "wxid_fixture", Nickname: "Fixture",
+		LoginState: domain.LoginStateLoggedIn,
+	}
+	if err := store.PutAccount(ctx, acct); err != nil {
+		t.Fatal(err)
+	}
+	side := t.TempDir()
+	t0 := time.Date(2024, 8, 2, 0, 0, 0, 0, time.UTC)
+	t1 := t0.Add(time.Hour)
+	writeTwo := func(includeNew bool) {
+		t.Helper()
+		msgs := []domain.Message{
+			{AccountID: acct.ID, TalkerID: "wxid_a", MsgID: "m-a-old", MsgSeq: 1, MsgType: 1, CreateTime: t0, Text: "old-a"},
+			{AccountID: acct.ID, TalkerID: "wxid_b", MsgID: "m-b-old", MsgSeq: 1, MsgType: 1, CreateTime: t0, Text: "old-b"},
+		}
+		convs := []domain.Conversation{
+			{AccountID: acct.ID, TalkerID: "wxid_a", Kind: domain.ConversationFriend, DisplayName: "A", LastMsgTime: t0, MsgCount: 1},
+			{AccountID: acct.ID, TalkerID: "wxid_b", Kind: domain.ConversationFriend, DisplayName: "B", LastMsgTime: t0, MsgCount: 1},
+		}
+		if includeNew {
+			msgs = append(msgs, domain.Message{
+				AccountID: acct.ID, TalkerID: "wxid_a", MsgID: "m-a-new", MsgSeq: 2, MsgType: 1, CreateTime: t1, Text: "new-a",
+			})
+			convs[0].LastMsgTime = t1
+			convs[0].MsgCount = 2
+		}
+		if err := backupfmt.Write(side, backupfmt.Snapshot{
+			AccountID: acct.ID, WxID: acct.WxID, Conversations: convs, Messages: msgs,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTwo(false)
+	sideSess := devicesession.NewSidecar(side)
+	sideSess.PollInterval = 15 * time.Millisecond
+	sideSess.StableFor = 20 * time.Millisecond
+	s, err := New(Options{Store: store, DataDir: dir, Sessions: func(context.Context, domain.Account) (domain.DeviceSession, error) {
+		return sideSess, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	job, err := s.Start(ctx, acct.ID, domain.BackupModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done, err := s.Wait(ctx, job.ID); err != nil || done.Status != domain.JobDone {
+		t.Fatalf("%+v %v", done, err)
+	}
+
+	writeTwo(true)
+	job2, err := s.Start(ctx, acct.ID, domain.BackupModeIncremental)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done, err := s.Wait(ctx, job2.ID); err != nil || done.Status != domain.JobDone {
+		t.Fatalf("%+v %v", done, err)
+	}
+	adb, err := s.store.OpenAccount(ctx, acct.WxID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := adb.ListMessages(ctx, "wxid_a", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a) != 2 || !containsText(a, "old-a") || !containsText(a, "new-a") {
+		t.Fatalf("talker a %+v", texts(a))
+	}
+	b, err := adb.ListMessages(ctx, "wxid_b", nil, 10)
+	if err != nil || len(b) != 1 || b[0].Text != "old-b" {
+		t.Fatalf("talker b %+v %v", b, err)
+	}
+}
+
+func containsText(msgs []domain.Message, want string) bool {
+	for _, m := range msgs {
+		if m.Text == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSidecarEncryptedPackageFailsJob(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	acct := domain.Account{
+		ID: "a1", WxID: "wxid_fixture", LoginState: domain.LoginStateLoggedIn,
+	}
+	if err := store.PutAccount(ctx, acct); err != nil {
+		t.Fatal(err)
+	}
+	side := t.TempDir()
+	if err := os.WriteFile(filepath.Join(side, backupfmt.BackupDBName), []byte("SQLCipher\x00not-sqlite"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(side, "BAK_0_TEXT"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sideSess := devicesession.NewSidecar(side)
+	sideSess.PollInterval = 15 * time.Millisecond
+	sideSess.StableFor = 20 * time.Millisecond
+	s, err := New(Options{Store: store, DataDir: dir, Sessions: func(context.Context, domain.Account) (domain.DeviceSession, error) {
+		return sideSess, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	job, err := s.Start(ctx, acct.ID, domain.BackupModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := s.Wait(ctx, job.ID)
+	if err != nil || done.Status != domain.JobFailed {
+		t.Fatalf("%+v %v", done, err)
+	}
+	if done.Error == "" {
+		t.Fatal("expected job error")
+	}
+}
+
 func TestStartBackupErrorFailsJob(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

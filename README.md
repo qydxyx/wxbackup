@@ -23,7 +23,7 @@ BAK_1_TEXT  BAK_1_MEDIA
 ...
 ```
 
-When `Backup.db` plus the `BAK_*` shards are in place (interchange packages decode immediately; still-growing copies wait until sizes settle), `StartBackup` exposes the package through `backupfmt.Read` as a `BackupStream`.
+`StartBackup` waits until `Backup.db` **and** at least one `BAK_*` shard are present and sizes have settled, then calls `backupfmt.Read`. Only a decoded **wxbackup-interchange** package becomes a `BackupStream` (one chunk per talker). Official SQLCipher `Backup.db` returns `backupfmt.ErrNeedsKey` and the backup job **fails** — it does not ingest an empty snapshot. This adapter does not derive session keys.
 
 ### Point WeChat's Backup folder at this directory
 
@@ -49,4 +49,4 @@ WXBACKUP_DATA=./data
 ./server
 ```
 
-Leave `WXBACKUP_SIDECAR_DIR` unset to keep backup APIs at 503 `no_session`. A later capture/PCAP adapter (optional) is out of this package.
+Leave `WXBACKUP_SIDECAR_DIR` unset to keep backup APIs at 503 `no_session`. Copy the interchange files this tree writes (`format=wxbackup-interchange`), or a plaintext package `backupfmt.Read` can decode. A later capture/PCAP adapter (optional) is out of this package.

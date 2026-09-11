@@ -21,13 +21,16 @@ import (
 // Sidecar is a DeviceSession that watches a user-configured directory for an
 // official Windows/Mac WeChat backup package (Backup.db + BAK_*). It does not
 // speak the WeChat protocol and does not drive a UI-automation binary.
+//
+// StartBackup succeeds only when backupfmt.Read returns a decoded interchange
+// snapshot. Encrypted SQLCipher Backup.db (ErrNeedsKey) fails the job instead
+// of ingesting an empty snapshot.
 type Sidecar struct {
 	Dir string
 	// PollInterval is how often the directory is scanned. Zero means 200ms.
 	PollInterval time.Duration
-	// StableFor is how long Backup.db / BAK_* sizes must stay unchanged before
-	// an encrypted (unreadable) package is treated as complete. Zero means 400ms.
-	// A successfully decoded interchange package is returned immediately.
+	// StableFor is how long Backup.db and BAK_* sizes must stay unchanged
+	// before the directory is opened. Zero means 400ms.
 	StableFor time.Duration
 }
 
@@ -77,7 +80,7 @@ func (s *Sidecar) StartBackup(ctx context.Context, req domain.BackupRequest) (do
 	if err != nil {
 		return nil, err
 	}
-	fake := &FakeSession{Chunks: []Chunk{snapshotChunk(snap)}}
+	fake := &FakeSession{Chunks: snapshotChunks(snap)}
 	return fake.StartBackup(ctx, req)
 }
 
@@ -104,35 +107,38 @@ func (s *Sidecar) waitPackage(ctx context.Context) (backupfmt.Snapshot, error) {
 	var lastSet bool
 	var stableSince time.Time
 
-	try := func() (backupfmt.Snapshot, bool) {
+	try := func() (backupfmt.Snapshot, bool, error) {
 		fp, ready := fingerprint(s.Dir)
 		if !ready {
-			return backupfmt.Snapshot{}, false
+			return backupfmt.Snapshot{}, false, nil
 		}
 		now := time.Now()
 		if !lastSet || fp != last {
 			last = fp
 			lastSet = true
 			stableSince = now
-			return backupfmt.Snapshot{}, false
+			return backupfmt.Snapshot{}, false, nil
 		}
 		if now.Sub(stableSince) < stableFor {
-			return backupfmt.Snapshot{}, false
+			return backupfmt.Snapshot{}, false, nil
 		}
 		// Open only after sizes settle so we do not SQLITE_BUSY a writer.
 		snap, err := backupfmt.Read(s.Dir)
 		if err == nil {
-			return snap, true
+			return snap, true, nil
 		}
 		if isBusy(err) {
 			lastSet = false
-			return snap, false
+			return snap, false, nil
 		}
-		return snap, errors.Is(err, backupfmt.ErrNeedsKey)
+		// Encrypted, truncated, or not an interchange package: fail visibly.
+		return snap, false, err
 	}
 
-	if snap, ok := try(); ok {
+	if snap, ok, err := try(); ok {
 		return snap, nil
+	} else if err != nil {
+		return snap, err
 	}
 	tick := time.NewTicker(poll)
 	defer tick.Stop()
@@ -144,8 +150,10 @@ func (s *Sidecar) waitPackage(ctx context.Context) (backupfmt.Snapshot, error) {
 			}
 			return backupfmt.Snapshot{}, ctx.Err()
 		case <-tick.C:
-			if snap, ok := try(); ok {
+			if snap, ok, err := try(); ok {
 				return snap, nil
+			} else if err != nil {
+				return snap, err
 			}
 		}
 	}
@@ -158,6 +166,7 @@ func fingerprint(dir string) (string, bool) {
 	}
 	var parts []string
 	hasDB := false
+	hasBAK := false
 	busy := false
 	for _, e := range entries {
 		name := e.Name()
@@ -167,7 +176,9 @@ func fingerprint(dir string) (string, bool) {
 		case strings.HasSuffix(name, "-wal"), strings.HasSuffix(name, "-shm"), strings.HasSuffix(name, "-journal"):
 			busy = true
 			continue
-		case !strings.HasPrefix(name, "BAK_"):
+		case strings.HasPrefix(name, "BAK_"):
+			hasBAK = true
+		default:
 			continue
 		}
 		info, err := e.Info()
@@ -176,7 +187,7 @@ func fingerprint(dir string) (string, bool) {
 		}
 		parts = append(parts, fmt.Sprintf("%s:%d:%d", name, info.Size(), info.ModTime().UnixNano()))
 	}
-	if !hasDB || busy {
+	if !hasDB || !hasBAK || busy {
 		return "", false
 	}
 	sort.Strings(parts)
@@ -191,33 +202,63 @@ func isBusy(err error) bool {
 	return strings.Contains(msg, "busy") || strings.Contains(msg, "locked")
 }
 
-func snapshotChunk(snap backupfmt.Snapshot) Chunk {
-	var n int64
+func snapshotChunks(snap backupfmt.Snapshot) []Chunk {
+	type acc struct {
+		ch Chunk
+	}
+	byTalker := map[string]*acc{}
+	add := func(talker string) *acc {
+		a, ok := byTalker[talker]
+		if !ok {
+			a = &acc{ch: Chunk{TalkerID: talker}}
+			byTalker[talker] = a
+		}
+		return a
+	}
+	for _, c := range snap.Conversations {
+		if c.TalkerID == "" {
+			continue
+		}
+		a := add(c.TalkerID)
+		a.ch.Conversations = append(a.ch.Conversations, c)
+	}
 	for _, m := range snap.Messages {
+		if m.TalkerID == "" {
+			continue
+		}
+		a := add(m.TalkerID)
+		a.ch.Messages = append(a.ch.Messages, m)
 		if m.Text != "" {
-			n += int64(len(m.Text))
+			a.ch.Bytes += int64(len(m.Text))
 		} else {
-			n++
+			a.ch.Bytes++
 		}
 	}
-	for _, blob := range snap.MediaBlobs {
-		n += int64(len(blob))
+	talkers := make([]string, 0, len(byTalker))
+	for id := range byTalker {
+		talkers = append(talkers, id)
 	}
-	if n == 0 {
-		n = 1
+	sort.Strings(talkers)
+	out := make([]Chunk, 0, len(talkers)+1)
+	for _, id := range talkers {
+		ch := byTalker[id].ch
+		if ch.Bytes == 0 {
+			ch.Bytes = 1
+		}
+		out = append(out, ch)
 	}
-	talker := ""
-	if len(snap.Conversations) == 1 {
-		talker = snap.Conversations[0].TalkerID
-	} else if len(snap.Messages) > 0 {
-		talker = snap.Messages[0].TalkerID
+	if len(snap.Media) > 0 || len(snap.MediaBlobs) > 0 {
+		media := Chunk{Media: snap.Media, MediaBlobs: snap.MediaBlobs}
+		for _, blob := range snap.MediaBlobs {
+			media.Bytes += int64(len(blob))
+		}
+		if media.Bytes == 0 {
+			media.Bytes = 1
+		}
+		out = append(out, media)
 	}
-	return Chunk{
-		TalkerID:      talker,
-		Conversations: snap.Conversations,
-		Messages:      snap.Messages,
-		Media:         snap.Media,
-		MediaBlobs:    snap.MediaBlobs,
-		Bytes:         n,
+	if len(out) == 0 {
+		return []Chunk{{Bytes: 1}}
 	}
+	return out
 }
