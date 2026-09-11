@@ -129,6 +129,15 @@ type AccountDB struct {
 func (a *AccountDB) WxID() string      { return a.wxid }
 func (a *AccountDB) AccountID() string { return a.accountID }
 
+// Conn is the per-account canonical handle. FTS lives in this file so WAL
+// and the single-connection busy timeout cover index rebuilds too.
+func (a *AccountDB) Conn() *sql.DB {
+	if a == nil {
+		return nil
+	}
+	return a.db
+}
+
 func (a *AccountDB) bindAccountID(got string) (string, error) {
 	if got != "" && got != a.accountID {
 		return "", fmt.Errorf("%w: %q != %q", ErrAccountMismatch, got, a.accountID)

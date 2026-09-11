@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/wxbackup/wxbackup/internal/domain"
+	"github.com/wxbackup/wxbackup/internal/store/fts"
 	"github.com/wxbackup/wxbackup/internal/store/sqlite"
 )
 
@@ -30,6 +31,8 @@ var (
 	errConversationGone  = &domain.Error{Code: codeNotFound, Message: "conversation not found"}
 	errBadCursor         = &domain.Error{Code: codeInvalidRequest, Message: "invalid before cursor"}
 	errBadLimit          = &domain.Error{Code: codeInvalidRequest, Message: "invalid limit"}
+	errBadMsgType        = &domain.Error{Code: codeInvalidRequest, Message: "invalid msg_type"}
+	errBadTimeRange      = &domain.Error{Code: codeInvalidRequest, Message: "invalid from or to"}
 )
 
 type Server struct {
@@ -44,6 +47,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/accounts", s.handleAccounts)
 	mux.HandleFunc("GET /v1/conversations", s.handleConversations)
 	mux.HandleFunc("GET /v1/conversations/{id}/messages", s.handleMessages)
+	mux.HandleFunc("GET /v1/search", s.handleSearch)
 	mux.HandleFunc("GET /v1/media/{id}", s.handleMedia)
 }
 
@@ -127,6 +131,51 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, body)
 }
 
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	adb, _, err := s.accountDB(r)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	limit, err := parseLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, errBadLimit)
+		return
+	}
+	q := fts.Query{
+		Q:     r.URL.Query().Get("q"),
+		Limit: limit,
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("msg_type")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, errBadMsgType)
+			return
+		}
+		q.MsgType = &n
+	}
+	from, err := parseTimeParam(r.URL.Query().Get("from"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, errBadTimeRange)
+		return
+	}
+	to, err := parseTimeParam(r.URL.Query().Get("to"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, errBadTimeRange)
+		return
+	}
+	q.From, q.To = from, to
+	msgs, err := fts.Search(r.Context(), adb.Conn(), q)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if msgs == nil {
+		msgs = []domain.Message{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+}
+
 func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	adb, _, err := s.accountDB(r)
 	if err != nil {
@@ -206,7 +255,8 @@ func writeAPIError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusInternalServerError, errors.New("internal error"))
 		return
 	}
-	if errors.Is(err, errAccountIDRequired) || errors.Is(err, errBadCursor) || errors.Is(err, errBadLimit) {
+	if errors.Is(err, errAccountIDRequired) || errors.Is(err, errBadCursor) || errors.Is(err, errBadLimit) ||
+		errors.Is(err, errBadMsgType) || errors.Is(err, errBadTimeRange) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -236,6 +286,31 @@ func writeError(w http.ResponseWriter, status int, err error) {
 		msg = err.Error()
 	}
 	writeJSON(w, status, errorResponse{Error: errorBody{Code: code, Message: msg}})
+}
+
+func parseTimeParam(raw string) (*time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		// 1e12 ms is 2001-09-09; chat timestamps after that are stored as millis.
+		if n > 0 && n < 1_000_000_000_000 {
+			t := time.Unix(n, 0).UTC()
+			return &t, nil
+		}
+		t := time.UnixMilli(n).UTC()
+		return &t, nil
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t, err = time.Parse(time.RFC3339Nano, raw)
+	}
+	if err != nil {
+		return nil, errBadTimeRange
+	}
+	t = t.UTC()
+	return &t, nil
 }
 
 func parseLimit(raw string) (int, error) {

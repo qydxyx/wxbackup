@@ -9,8 +9,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wxbackup/wxbackup/internal/domain"
 	"github.com/wxbackup/wxbackup/internal/store/sqlite"
@@ -332,6 +334,130 @@ func TestGetMediaMissingFile(t *testing.T) {
 	}
 	if body.Error.Code == "" || body.Error.Message == "" {
 		t.Fatalf("incomplete error %+v", body.Error)
+	}
+}
+
+func TestSearchKnownPhrase(t *testing.T) {
+	t.Parallel()
+	h := seededHandler(t)
+	rec := do(t, h, http.MethodGet, "/v1/search?account_id="+fixtures.AccountID+"&q="+url.QueryEscape("hello fixture"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.Bytes())
+	}
+	var body msgPage
+	decode(t, rec, &body)
+	if len(body.Messages) != 1 || body.Messages[0].MsgID != "m1" || body.Messages[0].Text != "hello fixture" {
+		t.Fatalf("%+v", body.Messages)
+	}
+}
+
+func TestSearchTypeFilter(t *testing.T) {
+	t.Parallel()
+	h := seededHandler(t)
+	rec := do(t, h, http.MethodGet, "/v1/search?account_id="+fixtures.AccountID+
+		"&q=synthetic&msg_type="+strconv.Itoa(fixtures.MsgSystem))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.Bytes())
+	}
+	var body msgPage
+	decode(t, rec, &body)
+	if len(body.Messages) != 1 || body.Messages[0].MsgID != "m6" || body.Messages[0].MsgType != fixtures.MsgSystem {
+		t.Fatalf("%+v", body.Messages)
+	}
+
+	rec = do(t, h, http.MethodGet, "/v1/search?account_id="+fixtures.AccountID+
+		"&q=hello+fixture&msg_type="+strconv.Itoa(fixtures.MsgImage))
+	decode(t, rec, &body)
+	if rec.Code != http.StatusOK || len(body.Messages) != 0 {
+		t.Fatalf("status %d %+v", rec.Code, body.Messages)
+	}
+}
+
+func TestSearchEmptyQuery(t *testing.T) {
+	t.Parallel()
+	h := seededHandler(t)
+	for _, path := range []string{
+		"/v1/search?account_id=" + fixtures.AccountID,
+		"/v1/search?account_id=" + fixtures.AccountID + "&q=",
+		"/v1/search?account_id=" + fixtures.AccountID + "&q=%20",
+	} {
+		rec := do(t, h, http.MethodGet, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status %d body %s", path, rec.Code, rec.Body.Bytes())
+		}
+		if got := strings.TrimSpace(rec.Body.String()); got != `{"messages":[]}` {
+			t.Fatalf("%s body %s", path, rec.Body.String())
+		}
+	}
+}
+
+func TestSearchRequiresAccount(t *testing.T) {
+	t.Parallel()
+	h := seededHandler(t)
+	rec := do(t, h, http.MethodGet, "/v1/search?q=hello")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", rec.Code)
+	}
+	assertErrorCode(t, rec, "invalid_request")
+}
+
+func TestSearchDateRangeAndBadParams(t *testing.T) {
+	t.Parallel()
+	h := seededHandler(t)
+	from := time.Date(2024, 1, 2, 3, 4, 4, 0, time.UTC).UnixMilli()
+	rec := do(t, h, http.MethodGet, "/v1/search?account_id="+fixtures.AccountID+"&q=later&from="+strconv.FormatInt(from, 10))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.Bytes())
+	}
+	var body msgPage
+	decode(t, rec, &body)
+	if len(body.Messages) != 1 || body.Messages[0].MsgID != "m5" {
+		t.Fatalf("%+v", body.Messages)
+	}
+
+	rec = do(t, h, http.MethodGet, "/v1/search?account_id="+fixtures.AccountID+"&q=later&from=not-a-time")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", rec.Code)
+	}
+	assertErrorCode(t, rec, "invalid_request")
+
+	rec = do(t, h, http.MethodGet, "/v1/search?account_id="+fixtures.AccountID+"&q=later&msg_type=nope")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", rec.Code)
+	}
+	assertErrorCode(t, rec, "invalid_request")
+}
+
+func TestSearchAccountIsolation(t *testing.T) {
+	t.Parallel()
+	store, dir := seededStore(t)
+	if err := fixtures.SeedOther(context.Background(), store, dir); err != nil {
+		t.Fatal(err)
+	}
+	h := handlerFor(t, store)
+
+	rec := do(t, h, http.MethodGet, "/v1/search?account_id="+fixtures.AccountID+"&q=fixture")
+	var a1 msgPage
+	decode(t, rec, &a1)
+	if len(a1.Messages) == 0 {
+		t.Fatal("expected a1 hits")
+	}
+	for _, m := range a1.Messages {
+		if m.AccountID != fixtures.AccountID || strings.HasPrefix(m.Text, "other-") {
+			t.Fatalf("leaked %+v", m)
+		}
+	}
+
+	rec = do(t, h, http.MethodGet, "/v1/search?account_id="+fixtures.OtherAccountID+"&q=other")
+	var a2 msgPage
+	decode(t, rec, &a2)
+	if len(a2.Messages) == 0 {
+		t.Fatal("expected a2 hits")
+	}
+	for _, m := range a2.Messages {
+		if m.AccountID != fixtures.OtherAccountID || strings.Contains(m.Text, "fixture") {
+			t.Fatalf("leaked %+v", m)
+		}
 	}
 }
 
