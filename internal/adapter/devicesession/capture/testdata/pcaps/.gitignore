@@ -1,0 +1,3 @@
+# Own-device captures contain chat traffic. Do not commit them.
+*
+!.gitignore
