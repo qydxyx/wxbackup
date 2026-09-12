@@ -1,0 +1,34 @@
+#!/bin/bash
+
+### This script is called after the user installs the application.
+
+WxPwd="/var/apps/${TRIM_APPNAME}"
+src="${WxPwd}/target/server"
+dst="${WxPwd}/var"
+
+cp -r "${src}/dist" "${dst}"
+cp "${src}/topcm" "${dst}"
+cp "${src}/WxBackup" "${dst}"
+cp "${src}/ffmpeg" "${dst}"
+cp "${src}/svc.txt" "${dst}"
+cp "${src}/updater" "${dst}"
+cp "${src}/chrome-linux.zip" "${dst}"
+
+#cp "${src}/ms-playwright.zip" "${dst}"
+#cp "${src}/index.cgi" "${dst}"
+#cp "${src}/config" "${dst}"
+
+cp "${WxPwd}/manifest" "${dst}"
+
+#rm ${dst}/svc.txt
+#rm ${dst}/config.js
+systemctl disable trim_app_cgi.service
+systemctl stop trim_app_cgi.service
+systemctl restart trim_http_cgi.service
+
+#name="$(whoami | tr -d '[:space:]')"
+#echo $name > "${dst}/name.txt"
+
+log_step "install_callback"
+
+exit 0

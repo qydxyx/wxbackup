@@ -1,0 +1,8 @@
+#!/bin/bash
+
+### This script is called after the user uninstalls the application.
+
+NODE_PID="${TRIM_PKGVAR}/node.pid"
+kill $(cat "$NODE_PID")
+
+exit 0

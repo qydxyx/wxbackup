@@ -1,0 +1,17 @@
+appname               = WxBackup
+display_name          = 微备份
+desc                  = 微备份是一款面向NAS的微信备份/恢复工具(付费)，支持鸿蒙/苹果/安卓微信数据备份至NAS，亦可从NAS恢复至鸿蒙/苹果/安卓微信，实现长期保存与随时查看数据。支持全量/增量备份、全量/部分恢复。❶保持8011、24011、9014、20360~20367这些端口不被占用且不被防火墙限制。❷如遇问题，可在【帮助-查看教程】或【WxBackup GitHub】查阅。
+changelog             = 01.【备份】优化鸿蒙微信备份<br>02.【聊天】优化统计功能<br>03.【聊天】解决GIF动图无法查看的问题
+version               = 1.2.9
+sub_version           = 1.2.9.0
+platform              = x86
+source                = thirdparty
+maintainer            = WxBackup
+maintainer_url        = https://github.com/weibeifen/wxbackup
+distributor           = WxBackup
+distributor_url       = https://github.com/weibeifen/wxbackup
+desktop_uidir         = ui
+desktop_applaunchname = WxBackup.Application
+service_port          = 20365
+checkport             = true
+checksum              = 099c1155fc9cb912f44da31122f4c636

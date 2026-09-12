@@ -1,0 +1,41 @@
+#!/bin/bash
+### Generic variables and functions
+### -------------------------------
+
+
+PACKAGE_BASE="/var/apps/${TRIM_APPNAME}/target"
+SVC_CWD="${PACKAGE_BASE}"
+#WXBACKUP_BIN="${PACKAGE_BASE}/server/WxBackup"
+#WXBACKUP_BIN="/vol1/@appcenter/WxBackup/server/WxBackup"
+WXBACKUP_BIN="/var/apps/WxBackup/target/server/WxBackup"
+
+ARIA2_CONF=/var/apps/aria2/var/aria2.conf
+
+
+# start-stop-status script redirect stdout/stderr to LOG_FILE
+LOG_FILE="${TRIM_PKGVAR}/logs/${TRIM_APPNAME}.log"
+
+# Service command has to deliver its pid into PID_FILE
+PID_FILE="${TRIM_PKGVAR}/${TRIM_APPNAME}.pid"
+
+
+### Package specific variables and functions
+### ----------------------------------------
+
+
+SVC_BACKGROUND=y
+SVC_WRITE_PID=y
+
+
+service_postinst(){
+	if [ ! -e /var/run/trim_http_cgi.socket ]; then
+		ln -s /var/run/trim_app_cgi.socket /var/run/trim_http_cgi.socket
+	fi
+	mkdir -p ${TRIM_PKGVAR}/logs/
+	cp /var/apps/aria2/target/conf/aria2.conf /var/apps/aria2/var/aria2.conf
+	sed -i "s/^rpc-secret=.*/rpc-secret=${wizard_secret}/" /var/apps/aria2/var/aria2.conf
+}
+
+
+#SERVICE_COMMAND="${ARIA2_BIN} --conf-path=${ARIA2_CONF}"
+SERVICE_COMMAND="${WXBACKUP_BIN}"

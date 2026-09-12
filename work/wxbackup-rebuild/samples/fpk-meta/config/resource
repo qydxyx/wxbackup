@@ -1,0 +1,28 @@
+{
+    "data-share":
+    {
+        "shares":
+        [
+            {
+                "name": "WxBackup",
+                "permission":
+                {
+                    "rw":
+                    [
+                        "WxBackup"
+                    ]
+                }
+            },
+            {
+                "name": "WxBackup/data",
+                "permission":
+                {
+                    "rw":
+                    [
+                        "WxBackup"
+                    ]
+                }
+            }
+        ]
+    }
+}
